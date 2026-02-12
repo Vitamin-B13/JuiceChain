@@ -13,3 +13,11 @@ A penetration testing automation toolchain for OWASP Juice Shop (for learning + 
 
 ## Project Status
 - v0.1: project scaffold in progress
+
+## Structure
+- src/juicechain: main package
+  - cli/: CLI entry and commands
+  - core/: core pipeline modules
+  - utils/: helpers
+- tests/: unit tests
+- docs/: design docs
