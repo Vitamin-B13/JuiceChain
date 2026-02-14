@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
-from importlib.metadata import version, PackageNotFoundError
+import json
+from importlib.metadata import PackageNotFoundError, version
+
+from juicechain.core.alive import check_http_alive
 
 
 def _get_version() -> str:
@@ -9,7 +12,7 @@ def _get_version() -> str:
         return version("juicechain")
     except PackageNotFoundError:
         return "0.0.0"
-    
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -24,13 +27,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # placeholder: scan 
+    # placeholder: scan
     scan = subparsers.add_parser("scan", help="Run scanning phase (placeholder)")
     scan.set_defaults(func=lambda _args: print("[scan] placeholder: not implemented yet"))
 
-    #placeholder: report
+    # placeholder: report
     report = subparsers.add_parser("report", help="Generate report (placeholder)")
     report.set_defaults(func=lambda _args: print("[report] placeholder: not implemented yet"))
+
+    # alive: http liveness check
+    alive = subparsers.add_parser("alive", help="Check target liveness via HTTP")
+    alive.add_argument(
+        "-t",
+        "--target",
+        required=True,
+        help="Target URL or host[:port], e.g. http://localhost:3000 or 127.0.0.1:3000",
+    )
+    alive.add_argument(
+        "--timeout",
+        type=float,
+        default=3.0,
+        help="HTTP timeout in seconds (default: 3.0)",
+    )
+
+    def _alive_cmd(args: argparse.Namespace) -> None:
+        res = check_http_alive(args.target, timeout=args.timeout)
+        print(json.dumps(res, ensure_ascii=False))
+
+    alive.set_defaults(func=_alive_cmd)
+
     return parser
 
 
@@ -40,6 +65,6 @@ def main(argv: list[str] | None = None) -> int:
     args.func(args)
     return 0
 
-    
+
 if __name__ == "__main__":
     raise SystemExit(main())

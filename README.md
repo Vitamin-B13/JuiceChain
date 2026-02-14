@@ -21,3 +21,12 @@ A penetration testing automation toolchain for OWASP Juice Shop (for learning + 
   - utils/: helpers
 - tests/: unit tests
 - docs/: design docs
+
+## CLI
+
+### alive
+Check whether a target is reachable via HTTP and output JSON.
+
+```bash
+juicechain alive -t http://localhost:3000
+juicechain alive -t http://localhost:3000 --timeout 2
