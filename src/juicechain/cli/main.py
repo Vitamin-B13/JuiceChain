@@ -6,6 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from juicechain.core.alive import check_http_alive
 from juicechain.core.info_gather import gather_info
+from juicechain.core.enumeration import enumerate_attack_surface
 
 
 def _get_version() -> str:
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="Generate report (placeholder)")
     report.set_defaults(func=lambda _args: print("[report] placeholder: not implemented yet"))
 
-    # alive: http liveness check
+    # alive
     alive = subparsers.add_parser("alive", help="Check target liveness via HTTP")
     alive.add_argument(
         "-t",
@@ -57,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     alive.set_defaults(func=_alive_cmd)
 
-    # info: passive info gathering
+    # info
     info = subparsers.add_parser("info", help="Passive info gathering (headers/title/robots.txt)")
     info.add_argument(
         "-t",
@@ -91,6 +92,52 @@ def build_parser() -> argparse.ArgumentParser:
             print(json.dumps(res, ensure_ascii=False))
 
     info.set_defaults(func=_info_cmd)
+
+    # enum
+    enum_cmd = subparsers.add_parser("enum", help="Attack surface enumeration (crawler + content discovery)")
+    enum_cmd.add_argument(
+        "-t",
+        "--target",
+        required=True,
+        help="Target URL or host[:port]",
+    )
+    enum_cmd.add_argument(
+        "--timeout",
+        type=float,
+        default=3.0,
+        help="HTTP timeout in seconds (default: 3.0)",
+    )
+    enum_cmd.add_argument(
+        "--max-pages",
+        type=int,
+        default=30,
+        help="Max pages to fetch in crawler (default: 30)",
+    )
+    enum_cmd.add_argument(
+        "--max-bytes",
+        type=int,
+        default=300_000,
+        help="Max bytes to read per response (default: 300000)",
+    )
+    enum_cmd.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+
+    def _enum_cmd(args: argparse.Namespace) -> None:
+        res = enumerate_attack_surface(
+            args.target,
+            timeout=args.timeout,
+            max_pages=args.max_pages,
+            max_bytes=args.max_bytes,
+        )
+        if args.pretty:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(res, ensure_ascii=False))
+
+    enum_cmd.set_defaults(func=_enum_cmd)
 
     return parser
 
