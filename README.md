@@ -30,3 +30,11 @@ Check whether a target is reachable via HTTP and output JSON.
 ```bash
 juicechain alive -t http://localhost:3000
 juicechain alive -t http://localhost:3000 --timeout 2
+
+
+### info
+Passive info gathering: homepage headers, page title, and robots.txt.
+
+```bash
+juicechain info -t http://localhost:3000
+juicechain info -t 192.168.204.24:3000 --pretty
