@@ -1,118 +1,122 @@
 from __future__ import annotations
 
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from juicechain.core.enumeration import enumerate_attack_surface
+from juicechain.core.enumeration import crawl_site, dir_bruteforce, enumerate_attack_surface
 
 
-class _Handler(BaseHTTPRequestHandler):
-    server_version = "TestServer/1.0"
-    sys_version = ""
+INDEX = b"""
+<html>
+  <head>
+    <title>Index</title>
+    <script src="/main.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+"""
 
+# Routes & endpoints are in JS (typical SPA)
+MAIN_JS = b"""
+const routes = ['#/login', '#/register', '/#/jobs'];
+const api = '/rest/user/login';
+const other = '/assets/public/logo.png';
+"""
+
+ROBOTS = b"User-agent: *\nDisallow: /secret\n"
+
+
+class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # IMPORTANT: check /admin BEFORE /a, and make /a matching strict.
-        if self.path == "/admin" or self.path.startswith("/admin?") or self.path.startswith("/admin/"):
-            self.send_response(403)
-            self.end_headers()
-            return
-
-        if self.path == "/" or self.path.startswith("/?"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(
-                b"""
-                <html>
-                  <head><title>Home</title></head>
-                  <body>
-                    <a href="/a">PageA</a>
-                    <a href="/b?x=1&y=2">PageB</a>
-                    <a href="https://example.com/external">External</a>
-                    <a href="/#/administration">HashRoute</a>
-                  </body>
-                </html>
-                """
-            )
-            return
-
-        # strict /a match so it never matches /admin
-        if self.path == "/a" or self.path.startswith("/a?") or self.path.startswith("/a/"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(
-                b"""
-                <html>
-                  <head><title>A</title></head>
-                  <body>
-                    <form action="/submit" method="post">
-                      <input name="username"/>
-                      <input name="password"/>
-                    </form>
-                  </body>
-                </html>
-                """
-            )
-            return
-
-        if self.path.startswith("/b"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"<html><head><title>B</title></head><body>ok</body></html>")
-            return
-
         if self.path == "/robots.txt":
             self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Type", "text/plain")
             self.end_headers()
-            self.wfile.write(b"User-agent: *\nDisallow: /secret\n")
+            self.wfile.write(ROBOTS)
             return
 
-        self.send_response(404)
+        if self.path == "/main.js":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(MAIN_JS)
+            return
+
+        if self.path == "/" or self.path == "":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            # put a route hint in header too
+            self.send_header("X-Recruiting", "/#/jobs")
+            self.end_headers()
+            self.wfile.write(INDEX)
+            return
+
+        # SPA fallback: unknown paths -> same index with 200
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
         self.end_headers()
+        self.wfile.write(INDEX)
 
     def log_message(self, format, *args):
         return
 
 
-def _run(server: HTTPServer):
-    server.serve_forever(poll_interval=0.1)
+def _run_server(server: HTTPServer):
+    server.serve_forever()
 
 
-def test_enumerate_attack_surface_basic():
-    server = HTTPServer(("127.0.0.1", 0), _Handler)
-    host, port = server.server_address
-
-    t = threading.Thread(target=_run, args=(server,), daemon=True)
+def test_crawl_site_spa_assets_and_routes():
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    t = threading.Thread(target=_run_server, args=(server,), daemon=True)
     t.start()
-
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
     try:
-        res = enumerate_attack_surface(f"{host}:{port}", timeout=1.0, max_pages=10)
-
-        assert res["ok"] is True
-        crawler = res["crawler"]
-        assert crawler is not None
-        assert len(crawler["pages_fetched"]) >= 1
-
-        urls = set(crawler["urls_discovered"])
-        assert any(u.endswith("/a") for u in urls)
-        assert any("/b" in u for u in urls)
-
-        assert "x" in crawler["param_names"]
-        assert "y" in crawler["param_names"]
-
-        forms = crawler["forms"]
-        assert any(("username" in f["inputs"]) and ("password" in f["inputs"]) for f in forms)
-
-        assert "/#/administration" in crawler["hash_routes"]
-
-        content = res["content_discovery"]
-        found_paths = {f["path"]: f["status_code"] for f in content["findings"]}
-        assert "/admin" in found_paths
-        assert found_paths["/admin"] == 403
-
+        res = crawl_site(base, timeout=2.0, max_pages=5, fetch_spa_assets=True, max_spa_assets=3)
+        spa = res.get("spa") or {}
+        assert any(u.endswith("/main.js") for u in (spa.get("asset_urls") or []))
+        routes = set(spa.get("routes_from_assets") or [])
+        assert "#/login" in routes
+        assert "#/register" in routes
+        # from header
+        assert "#/jobs" in set(res.get("hash_routes") or [])
+        api = set(spa.get("api_candidates_from_assets") or [])
+        assert "/rest/user/login" in api
     finally:
         server.shutdown()
-        server.server_close()
+
+
+def test_dir_bruteforce_spa_route_classification():
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    t = threading.Thread(target=_run_server, args=(server,), daemon=True)
+    t.start()
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        # Provide extracted spa routes to mapper
+        spa_routes = ["#/login", "#/register"]
+        res = dir_bruteforce(base, ["/login", "/not-a-route"], timeout=2.0, spa_routes=spa_routes)
+        spa_found = res.get("findings_spa_routes") or []
+        noise = res.get("findings_fallback_noise") or []
+        assert any(f["path"] == "/login" for f in spa_found)
+        assert any(f["path"] == "/not-a-route" for f in noise)
+    finally:
+        server.shutdown()
+
+
+def test_enumerate_attack_surface_ok():
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    t = threading.Thread(target=_run_server, args=(server,), daemon=True)
+    t.start()
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        res = enumerate_attack_surface(base, timeout=2.0, max_pages=5, paths=["/robots.txt", "/login", "/abc"])
+        assert res["ok"] is True
+        cd = res["content_discovery"]
+        assert cd["findings_server_endpoints"]  # robots
+        assert cd["findings_spa_routes"]        # login
+    finally:
+        server.shutdown()

@@ -1,0 +1,415 @@
+{
+  "meta": {
+    "tool": "juicechain",
+    "version": "0.5.0",
+    "timestamp": 1771857724,
+    "duration_ms": 447
+  },
+  "target": "192.168.204.24:3000",
+  "alive": {
+    "target": "http://192.168.204.24:3000",
+    "ok": true,
+    "alive": true,
+    "status_code": 200,
+    "response_time_ms": 31,
+    "error": null
+  },
+  "info": {
+    "target": "http://192.168.204.24:3000",
+    "ok": true,
+    "homepage": {
+      "url": "http://192.168.204.24:3000/",
+      "status_code": 200,
+      "response_time_ms": 19,
+      "headers": {
+        "Access-Control-Allow-Origin": "*",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Feature-Policy": "payment 'self'",
+        "X-Recruiting": "/#/jobs",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=0",
+        "Last-Modified": "Sun, 22 Feb 2026 09:10:48 GMT",
+        "ETag": "W/\"1252f-19c849da04e\"",
+        "Content-Type": "text/html; charset=UTF-8",
+        "Vary": "Accept-Encoding",
+        "Content-Encoding": "gzip",
+        "Date": "Mon, 23 Feb 2026 14:42:03 GMT",
+        "Connection": "keep-alive",
+        "Keep-Alive": "timeout=5",
+        "Transfer-Encoding": "chunked"
+      },
+      "title": "OWASP Juice Shop",
+      "content_length": 75055,
+      "content_type": "text/html; charset=UTF-8"
+    },
+    "fingerprint": {
+      "server": null,
+      "x_powered_by": null,
+      "hints": []
+    },
+    "security_headers": {
+      "present": {
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "missing": [
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "Referrer-Policy",
+        "Permissions-Policy"
+      ],
+      "deprecated_present": {
+        "Feature-Policy": "payment 'self'"
+      }
+    },
+    "spa_hints": {
+      "hash_route_hints": [
+        {
+          "header": "X-Recruiting",
+          "value": "/#/jobs",
+          "hash_route": "/#/jobs"
+        }
+      ],
+      "hash_routes_in_html": []
+    },
+    "robots": {
+      "url": "http://192.168.204.24:3000/robots.txt",
+      "ok": true,
+      "status_code": 200,
+      "response_time_ms": 4,
+      "directives": {
+        "user_agents": [
+          "*"
+        ],
+        "disallow": [
+          "/ftp"
+        ],
+        "allow": [],
+        "sitemaps": []
+      },
+      "error": null
+    },
+    "errors": []
+  },
+  "enum": {
+    "target": "http://192.168.204.24:3000",
+    "ok": true,
+    "crawler": {
+      "base": "http://192.168.204.24:3000",
+      "start_url": "http://192.168.204.24:3000/",
+      "pages_fetched": [
+        {
+          "url": "http://192.168.204.24:3000/",
+          "status_code": 200,
+          "response_time_ms": 26,
+          "content_type": "text/html; charset=UTF-8",
+          "content_length": 75055,
+          "title": "OWASP Juice Shop"
+        }
+      ],
+      "urls_discovered": [],
+      "forms": [],
+      "param_names": [],
+      "hash_routes": [
+        "#/jobs"
+      ],
+      "spa": {
+        "asset_urls": [
+          "http://192.168.204.24:3000/main.js",
+          "http://192.168.204.24:3000/polyfills.js",
+          "http://192.168.204.24:3000/runtime.js",
+          "http://192.168.204.24:3000/styles.css",
+          "http://192.168.204.24:3000/vendor.js"
+        ],
+        "routes_from_assets": [
+          "#/2fa/enter",
+          "#/403",
+          "#/about",
+          "#/accounting",
+          "#/address/create",
+          "#/address/saved",
+          "#/address/select",
+          "#/administration",
+          "#/basket",
+          "#/bee-haven",
+          "#/change-password",
+          "#/chatbot",
+          "#/complain",
+          "#/contact",
+          "#/data-export",
+          "#/delivery-method",
+          "#/deluxe-membership",
+          "#/forgot-password",
+          "#/hacking-instructor",
+          "#/juicy-nft",
+          "#/last-login-ip",
+          "#/login",
+          "#/order-history",
+          "#/order-summary",
+          "#/photo-wall",
+          "#/privacy-policy",
+          "#/privacy-security",
+          "#/recycle",
+          "#/register",
+          "#/saved-payment-methods",
+          "#/score-board",
+          "#/search",
+          "#/track-result",
+          "#/track-result/new",
+          "#/two-factor-authentication",
+          "#/wallet",
+          "#/wallet-web3",
+          "#/web3-sandbox"
+        ],
+        "route_paths_from_assets": [
+          "2fa/enter",
+          "403",
+          "about",
+          "accounting",
+          "address/create",
+          "address/saved",
+          "address/select",
+          "administration",
+          "basket",
+          "bee-haven",
+          "change-password",
+          "chatbot",
+          "complain",
+          "contact",
+          "data-export",
+          "delivery-method",
+          "deluxe-membership",
+          "forgot-password",
+          "hacking-instructor",
+          "juicy-nft",
+          "last-login-ip",
+          "login",
+          "order-history",
+          "order-summary",
+          "photo-wall",
+          "privacy-policy",
+          "privacy-security",
+          "recycle",
+          "register",
+          "saved-payment-methods",
+          "score-board",
+          "search",
+          "track-result",
+          "track-result/new",
+          "two-factor-authentication",
+          "wallet",
+          "wallet-web3",
+          "web3-sandbox"
+        ],
+        "api_candidates_from_assets": [
+          "/api/Addresss",
+          "/api/BasketItems",
+          "/api/Cards",
+          "/api/Challenges",
+          "/api/Challenges/?key=nftMintChallenge",
+          "/api/Complaints",
+          "/api/Deliverys",
+          "/api/Feedbacks",
+          "/api/Hints",
+          "/api/Products",
+          "/api/Quantitys",
+          "/api/Recycles",
+          "/api/SecurityAnswers",
+          "/api/SecurityQuestions",
+          "/api/Users",
+          "/rest/admin",
+          "/rest/captcha",
+          "/rest/chatbot",
+          "/rest/continue-code",
+          "/rest/continue-code-findIt",
+          "/rest/continue-code-findIt/apply/",
+          "/rest/continue-code-fixIt",
+          "/rest/continue-code-fixIt/apply/",
+          "/rest/continue-code/apply/",
+          "/rest/country-mapping",
+          "/rest/deluxe-membership",
+          "/rest/image-captcha/",
+          "/rest/memories",
+          "/rest/order-history",
+          "/rest/products",
+          "/rest/repeat-notification",
+          "/rest/saveLoginIp",
+          "/rest/track-order",
+          "/rest/user",
+          "/rest/user/authentication-details/",
+          "/rest/user/change-password?current=",
+          "/rest/user/login",
+          "/rest/user/reset-password",
+          "/rest/user/security-question?email=",
+          "/rest/user/whoami",
+          "/rest/wallet/balance",
+          "/rest/web3"
+        ]
+      },
+      "errors": []
+    },
+    "content_discovery": {
+      "base": "http://192.168.204.24:3000",
+      "tested": 14,
+      "fallback_probe": {
+        "url": "http://192.168.204.24:3000/__juicechain_probe__/27a96c20246484d7",
+        "status_code": 200,
+        "title": "OWASP Juice Shop",
+        "content_type": "text/html; charset=UTF-8",
+        "signature": "b25dc3d3c5335e78d26acd04d0219a4a7c588453"
+      },
+      "findings_server_endpoints": [
+        {
+          "path": "/robots.txt",
+          "url": "http://192.168.204.24:3000/robots.txt",
+          "status_code": 200,
+          "response_time_ms": 3,
+          "content_type": "text/plain; charset=utf-8",
+          "title": null,
+          "suspected_fallback": false,
+          "suspect_reason": null,
+          "kind": "server_endpoint"
+        },
+        {
+          "path": "/security.txt",
+          "url": "http://192.168.204.24:3000/security.txt",
+          "status_code": 200,
+          "response_time_ms": 3,
+          "content_type": "text/plain; charset=utf-8",
+          "title": null,
+          "suspected_fallback": false,
+          "suspect_reason": null,
+          "kind": "server_endpoint"
+        },
+        {
+          "path": "/.well-known/security.txt",
+          "url": "http://192.168.204.24:3000/.well-known/security.txt",
+          "status_code": 200,
+          "response_time_ms": 3,
+          "content_type": "text/plain; charset=utf-8",
+          "title": null,
+          "suspected_fallback": false,
+          "suspect_reason": null,
+          "kind": "server_endpoint"
+        }
+      ],
+      "findings_spa_routes": [
+        {
+          "path": "/login",
+          "url": "http://192.168.204.24:3000/login",
+          "status_code": 200,
+          "response_time_ms": 16,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "spa_route"
+        },
+        {
+          "path": "/register",
+          "url": "http://192.168.204.24:3000/register",
+          "status_code": 200,
+          "response_time_ms": 13,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "spa_route"
+        }
+      ],
+      "findings_fallback_noise": [
+        {
+          "path": "/sitemap.xml",
+          "url": "http://192.168.204.24:3000/sitemap.xml",
+          "status_code": 200,
+          "response_time_ms": 16,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/admin",
+          "url": "http://192.168.204.24:3000/admin",
+          "status_code": 200,
+          "response_time_ms": 15,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/swagger",
+          "url": "http://192.168.204.24:3000/swagger",
+          "status_code": 200,
+          "response_time_ms": 11,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/openapi.json",
+          "url": "http://192.168.204.24:3000/openapi.json",
+          "status_code": 200,
+          "response_time_ms": 14,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/graphql",
+          "url": "http://192.168.204.24:3000/graphql",
+          "status_code": 200,
+          "response_time_ms": 14,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/backup",
+          "url": "http://192.168.204.24:3000/backup",
+          "status_code": 200,
+          "response_time_ms": 26,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/.git/",
+          "url": "http://192.168.204.24:3000/.git/",
+          "status_code": 200,
+          "response_time_ms": 23,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        },
+        {
+          "path": "/.env",
+          "url": "http://192.168.204.24:3000/.env",
+          "status_code": 200,
+          "response_time_ms": 12,
+          "content_type": "text/html; charset=UTF-8",
+          "title": "OWASP Juice Shop",
+          "suspected_fallback": true,
+          "suspect_reason": "body matches non-existent-path fallback probe (likely SPA catch-all)",
+          "kind": "fallback_noise"
+        }
+      ],
+      "errors": []
+    },
+    "errors": []
+  }
+}

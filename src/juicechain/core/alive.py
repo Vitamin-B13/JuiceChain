@@ -1,57 +1,26 @@
 from __future__ import annotations
 
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from typing import Any
 
+from .http_client import HttpClient
+from .target import normalize_target_base
 
-def normalize_target(target: str) -> str:
+
+def check_http_alive(
+    target: str,
+    *,
+    timeout: float = 3.0,
+    verify_tls: bool = True,
+    allow_redirects: bool = False,
+    retries: int = 0,
+) -> dict[str, Any]:
     """
-    Normalize user input into a valid URL.
-
-    Accepts:
-      - http://host:port
-      - https://host:port
-      - host:port
-      - host
-      - 127.0.0.1:3000
+    Alive means: we can get an HTTP response (any status code counts as alive).
     """
-    target = (target or "").strip()
-    if not target:
-        raise ValueError("target is empty")
-
-    # IMPORTANT:
-    # "192.168.204.24:3000" will be parsed as scheme by urlparse if we don't prefix scheme.
-    if not target.lower().startswith(("http://", "https://")):
-        target = "http://" + target
-
-    parsed = urllib.parse.urlparse(target)
-    if not parsed.hostname:
-        raise ValueError(f"invalid target: {target}")
-
-    return target
-
-
-def check_http_alive(target: str, timeout: float = 3.0) -> dict[str, Any]:
-    """
-    Check whether an HTTP service is reachable.
-
-    Alive means:
-      - we can get an HTTP response (any status code counts as alive)
-
-    Returns:
-      {
-        "target": "<normalized_url or original>",
-        "alive": true/false,
-        "status_code": int or null,
-        "response_time_ms": int or null,
-        "error": str or null
-      }
-    """
-    result: dict[str, Any] = {
+    out: dict[str, Any] = {
         "target": target,
+        "ok": False,
         "alive": False,
         "status_code": None,
         "response_time_ms": None,
@@ -59,40 +28,30 @@ def check_http_alive(target: str, timeout: float = 3.0) -> dict[str, Any]:
     }
 
     try:
-        normalized_url = normalize_target(target)
-        result["target"] = normalized_url
+        base = normalize_target_base(target)
+        out["target"] = base
     except Exception as e:
-        result["error"] = f"{type(e).__name__}: {e}"
-        return result
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
 
+    client = HttpClient(
+        timeout=timeout,
+        verify_tls=verify_tls,
+        allow_redirects=allow_redirects,
+        max_bytes=0,
+        retries=retries,
+    )
     start = time.perf_counter()
     try:
-        req = urllib.request.Request(
-            url=normalized_url,
-            method="GET",
-            headers={
-                "User-Agent": "JuiceChain/0.1 (alive-check)",
-                "Accept": "*/*",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            status_code = getattr(resp, "status", None)
-            result["status_code"] = int(status_code) if status_code is not None else None
+        res = client.request("HEAD", base, max_bytes=0)
+        if res.ok and res.status_code in (405, 501):
+            res = client.request("GET", base, max_bytes=0)
 
-        result["response_time_ms"] = int(round((time.perf_counter() - start) * 1000))
-        result["alive"] = True
-        return result
-
-    except urllib.error.HTTPError as e:
-        # HTTPError also means server responded (e.g., 404/500) => alive
-        result["response_time_ms"] = int(round((time.perf_counter() - start) * 1000))
-        result["status_code"] = int(getattr(e, "code", 0) or 0)
-        result["alive"] = True
-        result["error"] = None
-        return result
-
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
-        result["response_time_ms"] = int(round((time.perf_counter() - start) * 1000))
-        result["error"] = f"{type(e).__name__}: {e}"
-        result["alive"] = False
-        return result
+        out["response_time_ms"] = int(round((time.perf_counter() - start) * 1000))
+        out["status_code"] = res.status_code
+        out["ok"] = bool(res.ok)
+        out["alive"] = bool(res.ok)
+        out["error"] = res.error
+        return out
+    finally:
+        client.close()
