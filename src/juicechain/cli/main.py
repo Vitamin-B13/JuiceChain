@@ -1,4 +1,6 @@
 from __future__ import annotations
+from juicechain.core.vulnerability import vuln_dry_run_report
+
 
 import argparse
 import json
@@ -186,6 +188,30 @@ def build_parser() -> argparse.ArgumentParser:
         print(_dump(res, pretty=args.pretty))
 
     enum_cmd.set_defaults(func=_enum_cmd)
+
+        # vuln (week5 skeleton): derive input points + dry-run output
+    vuln = subparsers.add_parser("vuln", help="Vulnerability module (week5: skeleton/dry-run)")
+    vuln.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
+    vuln.add_argument("--dry-run", action="store_true", help="Only derive input points and output stats (no requests)")
+    vuln.add_argument("-o", "--output", type=str, default=None, help="Write JSON result to file")
+    vuln.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+
+    def _vuln_cmd(args: argparse.Namespace) -> None:
+        p = Path(args.input)
+        scan_doc = json.loads(p.read_text(encoding="utf-8"))
+
+        # Step 5.1: only dry-run is meaningful; non-dry-run kept as placeholder
+        out = vuln_dry_run_report(scan_doc, version=_get_version())
+        if not args.dry_run:
+            out["meta"]["mode"] = "placeholder"
+
+        s = _dump(out, pretty=args.pretty)
+        if args.output:
+            Path(args.output).write_text(s, encoding="utf-8")
+        else:
+            print(s)
+
+    vuln.set_defaults(func=_vuln_cmd)
 
     # report（保持你 v0.5 那份不变即可）
     report = subparsers.add_parser("report", help="Generate a Markdown report from scan JSON")
