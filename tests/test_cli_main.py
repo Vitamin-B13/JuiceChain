@@ -1,8 +1,9 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from juicechain.cli.main import CliUsageError, _extract_scan_document, _load_json_input
+from juicechain.cli.main import CliUsageError, _emit_payload, _extract_scan_document, _load_json_input
 
 
 def test_load_json_input_missing_file():
@@ -34,3 +35,15 @@ def test_extract_scan_document_accepts_cli_payload_shape():
     }
     out = _extract_scan_document(doc)
     assert out == doc["data"]
+
+
+def test_emit_payload_output_file_is_pretty_json(tmp_path):
+    output_file = tmp_path / "out.json"
+    args = SimpleNamespace(output=str(output_file), pretty=False, format="json")
+    payload = {"meta": {"command": "scan"}, "ok": True, "target": "x", "data": {}, "errors": []}
+
+    _emit_payload(args, payload)
+    text = output_file.read_text(encoding="utf-8")
+
+    assert "\n" in text
+    assert '  "meta"' in text

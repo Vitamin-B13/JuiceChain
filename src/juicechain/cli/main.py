@@ -181,7 +181,8 @@ def _configure_runtime_logging(args: argparse.Namespace) -> None:
 def _emit_payload(args: argparse.Namespace, payload: dict[str, Any]) -> None:
     path = getattr(args, "output", None)
     if path:
-        text = serialize_payload(payload, pretty=bool(getattr(args, "pretty", False)))
+        # File output is always pretty for readability and manual review.
+        text = serialize_payload(payload, pretty=True)
         Path(path).write_text(text, encoding="utf-8")
         return
 
