@@ -124,8 +124,20 @@ def _resolve_ok(data: Any, errors: list[str]) -> bool:
 def _resolve_ok_for_scan(data: Any, errors: list[str]) -> bool:
     if not isinstance(data, dict):
         return False
-    alive = data.get("alive") if isinstance(data.get("alive"), dict) else {}
+    alive = _as_dict(data.get("alive"))
     return bool(alive.get("alive")) and len(errors) == 0
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    return []
 
 
 def _configure_runtime_logging(args: argparse.Namespace) -> None:
@@ -768,8 +780,8 @@ def build_parser() -> argparse.ArgumentParser:
             scan_errors = _extract_scan_errors(scan_doc)
             vuln_errors = _extract_errors_from_obj(vuln_doc)
             all_errors = normalize_errors(scan_errors + vuln_errors)
-            alive_info = scan_doc.get("alive") if isinstance(scan_doc.get("alive"), dict) else {}
-            findings = vuln_doc.get("findings") if isinstance(vuln_doc.get("findings"), list) else []
+            alive_info = _as_dict(scan_doc.get("alive"))
+            findings = _as_list(vuln_doc.get("findings"))
 
             return {
                 "ok": bool(alive_info.get("alive")) and len(all_errors) == 0,

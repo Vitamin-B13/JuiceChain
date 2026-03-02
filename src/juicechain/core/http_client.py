@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-import time
 import hashlib
+import time
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping
 
 import requests
 from juicechain.utils.logging import get_logger
 
 
-_DEFAULT_UA = "JuiceChain/0.6.1.0 (+https://github.com/Vitamin-B13/JuiceChain)"
+def _resolve_default_user_agent() -> str:
+    """Build the default JuiceChain user-agent string from package metadata."""
+    try:
+        pkg_version = version("juicechain")
+    except PackageNotFoundError:
+        pkg_version = "0.0.0"
+    return f"JuiceChain/{pkg_version} (+https://github.com/Vitamin-B13/JuiceChain)"
+
+
+_DEFAULT_UA = _resolve_default_user_agent()
 logger = get_logger(__name__)
 
 
@@ -24,6 +34,15 @@ class HttpResponse:
     error: str | None
 
     def text(self) -> str:
+        """Decode response body using UTF-8 (best effort).
+
+        Args:
+            None.
+
+        Returns:
+            A decoded response body string. Returns an empty string when the
+            body is empty or decoding fails.
+        """
         if not self.body:
             return ""
         try:
@@ -32,6 +51,15 @@ class HttpResponse:
             return ""
 
     def content_type(self) -> str:
+        """Return content type header value.
+
+        Args:
+            None.
+
+        Returns:
+            Value of `Content-Type` (case-insensitive), or an empty string when
+            the header is absent.
+        """
         return (self.headers.get("Content-Type") or self.headers.get("content-type") or "").strip()
 
 
@@ -88,6 +116,17 @@ class HttpClient:
         self._last_request_ts: float | None = None
 
     def close(self) -> None:
+        """Close the underlying HTTP session.
+
+        Args:
+            None.
+
+        Returns:
+            `None`.
+
+        Raises:
+            This method suppresses all close errors and never raises.
+        """
         try:
             self._session.close()
         except Exception:
@@ -120,6 +159,24 @@ class HttpClient:
         data: Any | None = None,
         json_data: Any | None = None,
     ) -> HttpResponse:
+        """Send an HTTP request and return normalized response metadata.
+
+        Args:
+            method: HTTP method name.
+            url: Target absolute URL.
+            timeout: Per-request timeout in seconds.
+            max_bytes: Maximum response body bytes to read (`0` means no body).
+            allow_redirects: Whether to follow redirects.
+            verify_tls: Whether TLS certificate validation is enabled.
+            headers: Extra per-request headers.
+            params: Query string parameters.
+            data: Raw request body payload.
+            json_data: JSON request body serialized by `requests`.
+
+        Returns:
+            A normalized `HttpResponse` object. Transport errors are reported in
+            `HttpResponse.error` instead of being raised.
+        """
         method = (method or "GET").upper().strip()
         timeout = float(timeout if timeout is not None else self.timeout)
         max_bytes = int(max_bytes if max_bytes is not None else self.max_bytes)
@@ -211,11 +268,17 @@ class HttpClient:
             error=last_err or "unknown error",
         )
 
+
 def body_signature(body: bytes, *, max_len: int = 8192) -> str:
-    """
-    For SPA fallback heuristics:
-    - decode best-effort, lower, collapse whitespace
-    - hash prefix
+    """Generate a stable response-body signature for fallback detection.
+
+    Args:
+        body: Raw HTTP response bytes.
+        max_len: Maximum normalized text length used to compute signature.
+
+    Returns:
+        A SHA1 hex digest of normalized content, or an empty string for empty
+        bodies.
     """
     if not body:
         return ""

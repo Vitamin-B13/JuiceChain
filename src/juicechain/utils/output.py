@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, cast
 
 
 def normalize_errors(errors: list[Any] | None) -> list[str]:
@@ -58,7 +58,7 @@ def serialize_payload(payload: dict[str, Any], *, pretty: bool = False) -> str:
 def _render_table(payload: dict[str, Any]) -> str:
     rows: list[tuple[str, str]] = []
 
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    meta = _as_dict(payload.get("meta"))
     rows.append(("command", _safe_str(meta.get("command"))))
     rows.append(("version", _safe_str(meta.get("version"))))
     rows.append(("ok", _safe_str(payload.get("ok"))))
@@ -89,9 +89,9 @@ def _command_summary_rows(command: str, data: Any) -> list[tuple[str, str]]:
         ]
 
     if command == "info":
-        home = data.get("homepage") if isinstance(data.get("homepage"), dict) else {}
-        sec = data.get("security_headers") if isinstance(data.get("security_headers"), dict) else {}
-        missing = sec.get("missing") if isinstance(sec.get("missing"), list) else []
+        home = _as_dict(data.get("homepage"))
+        sec = _as_dict(data.get("security_headers"))
+        missing = _as_list(sec.get("missing"))
         return [
             ("homepage_status", _safe_str(home.get("status_code"))),
             ("homepage_title", _safe_str(home.get("title"), max_len=80)),
@@ -99,12 +99,11 @@ def _command_summary_rows(command: str, data: Any) -> list[tuple[str, str]]:
         ]
 
     if command == "enum":
-        crawler = data.get("crawler") if isinstance(data.get("crawler"), dict) else {}
-        pages = crawler.get("pages_fetched") if isinstance(crawler.get("pages_fetched"), list) else []
-        urls = crawler.get("urls_discovered") if isinstance(crawler.get("urls_discovered"), list) else []
-        cd = data.get("content_discovery") if isinstance(data.get("content_discovery"), dict) else {}
-        eps = cd.get("findings_server_endpoints")
-        server_eps = eps if isinstance(eps, list) else []
+        crawler = _as_dict(data.get("crawler"))
+        pages = _as_list(crawler.get("pages_fetched"))
+        urls = _as_list(crawler.get("urls_discovered"))
+        cd = _as_dict(data.get("content_discovery"))
+        server_eps = _as_list(cd.get("findings_server_endpoints"))
         return [
             ("pages_fetched", str(len(pages))),
             ("urls_discovered", str(len(urls))),
@@ -112,10 +111,10 @@ def _command_summary_rows(command: str, data: Any) -> list[tuple[str, str]]:
         ]
 
     if command == "scan":
-        alive = data.get("alive") if isinstance(data.get("alive"), dict) else {}
-        enum = data.get("enum") if isinstance(data.get("enum"), dict) else {}
-        crawler = enum.get("crawler") if isinstance(enum.get("crawler"), dict) else {}
-        pages = crawler.get("pages_fetched") if isinstance(crawler.get("pages_fetched"), list) else []
+        alive = _as_dict(data.get("alive"))
+        enum = _as_dict(data.get("enum"))
+        crawler = _as_dict(enum.get("crawler"))
+        pages = _as_list(crawler.get("pages_fetched"))
         return [
             ("alive", _safe_str(alive.get("alive"))),
             ("alive_status", _safe_str(alive.get("status_code"))),
@@ -123,8 +122,8 @@ def _command_summary_rows(command: str, data: Any) -> list[tuple[str, str]]:
         ]
 
     if command == "vuln":
-        findings = data.get("findings") if isinstance(data.get("findings"), list) else []
-        points = data.get("input_points") if isinstance(data.get("input_points"), dict) else {}
+        findings = _as_list(data.get("findings"))
+        points = _as_dict(data.get("input_points"))
         return [
             ("input_points", _safe_str(points.get("total"))),
             ("findings", str(len(findings))),
@@ -157,7 +156,7 @@ def _tabulate_rows(rows: list[tuple[str, str]]) -> str:
     try:
         from tabulate import tabulate
 
-        return tabulate(rows, headers=["Field", "Value"], tablefmt="github")
+        return cast(str, tabulate(rows, headers=["Field", "Value"], tablefmt="github"))
     except Exception:
         key_w = max(len("Field"), *(len(k) for k, _ in rows))
         val_w = max(len("Value"), *(len(v) for _, v in rows))
@@ -171,3 +170,15 @@ def _tabulate_rows(rows: list[tuple[str, str]]) -> str:
             lines.append(f"| {k.ljust(key_w)} | {v.ljust(val_w)} |")
         lines.append(border)
         return "\n".join(lines)
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    return []

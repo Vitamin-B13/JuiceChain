@@ -39,6 +39,18 @@ class DomXssResult:
 
 
 def build_search_fragment_url(base: str, payload: str) -> str:
+    """Build a hash-route search URL containing an encoded payload.
+
+    Args:
+        base: Target base URL.
+        payload: Raw payload string.
+
+    Returns:
+        Full URL for `/#/search?q=...` style probing.
+
+    Raises:
+        ValueError: If URL template expansion fails.
+    """
     target = DomXssTarget(
         url_template="{base}/#/search?q={payload}",
         param_name="q",
@@ -48,6 +60,19 @@ def build_search_fragment_url(base: str, payload: str) -> str:
 
 
 def build_dom_xss_url(base: str, target: DomXssTarget, payload: str) -> str:
+    """Build a concrete DOM-XSS probe URL from a target template.
+
+    Args:
+        base: Target base URL.
+        target: URL template and parameter metadata.
+        payload: Raw payload string.
+
+    Returns:
+        Fully formatted probe URL with URL-encoded payload.
+
+    Raises:
+        ValueError: If template rendering fails.
+    """
     enc = quote(payload, safe="")
     base_clean = (base or "").rstrip("/")
     try:
@@ -104,6 +129,15 @@ def auto_discover_dom_xss_targets(
     *,
     extra_targets: Iterable[DomXssTarget] | None = None,
 ) -> list[DomXssTarget]:
+    """Discover candidate DOM-XSS browser targets from scan results.
+
+    Args:
+        scan_doc: Scan JSON document (`scan` output payload or inner data).
+        extra_targets: Optional manually provided target list.
+
+    Returns:
+        De-duplicated candidate target list keyed by template and parameter.
+    """
     enum = scan_doc.get("enum") or {}
     crawler = (enum.get("crawler") or {}) if isinstance(enum, Mapping) else {}
     spa = (crawler.get("spa") or {}) if isinstance(crawler, Mapping) else {}
@@ -137,9 +171,16 @@ def verify_dom_xss(
     headless: bool = True,
     timeout_ms: int = 8000,
 ) -> list[DomXssResult]:
-    """
-    DOM-XSS verification via browser dialog capture (alert/confirm/prompt).
-    Only use on authorized targets / local labs.
+    """Verify DOM-XSS by capturing browser dialogs from payload execution.
+
+    Args:
+        base: Target base URL.
+        targets: Candidate URL templates to probe.
+        headless: Whether Playwright runs in headless mode.
+        timeout_ms: Navigation timeout for each probe request.
+
+    Returns:
+        List of successful findings and/or runtime dependency errors.
     """
     t0 = time.time()
     target_list = [t for t in targets if isinstance(t, DomXssTarget)]
@@ -170,7 +211,7 @@ def verify_dom_xss(
 
         dialog_msgs: list[str] = []
 
-        def on_dialog(d) -> None:
+        def on_dialog(d: Any) -> None:
             try:
                 dialog_msgs.append(d.message)
                 d.dismiss()
@@ -232,8 +273,15 @@ def verify_dom_xss_on_search(
     headless: bool = True,
     timeout_ms: int = 8000,
 ) -> DomXssResult:
-    """
-    Backward-compatible wrapper for single search target.
+    """Run DOM-XSS verification against the default search route only.
+
+    Args:
+        base: Target base URL.
+        headless: Whether Playwright runs in headless mode.
+        timeout_ms: Navigation timeout for each probe request.
+
+    Returns:
+        First DOM-XSS verification result for the built-in search route target.
     """
     t0 = time.time()
     target = DomXssTarget(

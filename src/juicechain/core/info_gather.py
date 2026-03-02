@@ -16,6 +16,14 @@ _HASH_ROUTE_RE = re.compile(r"(?:/)?#/[A-Za-z0-9_\-\/]+")
 
 
 def extract_title(html_bytes: bytes) -> str | None:
+    """Extract HTML title from response bytes.
+
+    Args:
+        html_bytes: Raw response body bytes.
+
+    Returns:
+        Normalized `<title>` text, or `None` when not present/decodable.
+    """
     if not html_bytes:
         return None
     try:
@@ -30,6 +38,14 @@ def extract_title(html_bytes: bytes) -> str | None:
 
 
 def fingerprint_from_headers(headers: dict[str, str]) -> dict[str, Any]:
+    """Infer lightweight tech fingerprint from response headers.
+
+    Args:
+        headers: HTTP response headers.
+
+    Returns:
+        Dictionary with server/X-Powered-By values and normalized hint list.
+    """
     def _get(name: str) -> str | None:
         return headers.get(name) or headers.get(name.lower())
 
@@ -73,6 +89,15 @@ _DEPRECATED_HEADERS = [
 
 
 def security_headers_audit(headers: dict[str, str]) -> dict[str, Any]:
+    """Audit common security headers in an HTTP response.
+
+    Args:
+        headers: HTTP response headers.
+
+    Returns:
+        Dictionary containing present, missing, and deprecated security header
+        sets.
+    """
     present: dict[str, str] = {}
     missing: list[str] = []
     deprecated_present: dict[str, str] = {}
@@ -95,6 +120,15 @@ def security_headers_audit(headers: dict[str, str]) -> dict[str, Any]:
 
 
 def parse_robots(robots_text: str) -> dict[str, Any]:
+    """Parse `robots.txt` directives into a normalized structure.
+
+    Args:
+        robots_text: Raw `robots.txt` text.
+
+    Returns:
+        Dictionary with parsed `user_agents`, `disallow`, `allow`, and
+        `sitemaps` directives.
+    """
     disallow: list[str] = []
     allow: list[str] = []
     sitemaps: list[str] = []
@@ -156,6 +190,20 @@ def gather_info(
     max_bytes: int = 256_000,
     retries: int = 0,
 ) -> dict[str, Any]:
+    """Collect passive target information and security metadata.
+
+    Args:
+        target: Target URL or host input.
+        timeout: Request timeout in seconds.
+        verify_tls: Whether TLS certificate validation is enabled.
+        allow_redirects: Whether redirects are followed.
+        max_bytes: Maximum bytes to read per HTTP response.
+        retries: Retry attempts for transport failures.
+
+    Returns:
+        A structured information document containing homepage data, technology
+        hints, security-header audit, SPA hints, robots directives, and errors.
+    """
     logger.info("info gather start: target=%s", target)
     out: dict[str, Any] = {
         "target": target,

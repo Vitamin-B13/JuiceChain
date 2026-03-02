@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -8,18 +9,22 @@ from typing import Any, Mapping
 
 def _load_toml(path: str) -> dict[str, Any]:
     try:
-        import tomllib  # py311+
+        toml_module = importlib.import_module("tomllib")
     except ModuleNotFoundError:
         try:
-            import tomli as tomllib  # type: ignore[import-not-found]  # py310 fallback
+            toml_module = importlib.import_module("tomli")
         except ModuleNotFoundError as e:
             raise RuntimeError(
                 "TOML parser not available. On Python 3.10, install 'tomli'."
             ) from e
 
+    toml_loader = getattr(toml_module, "load", None)
+    if not callable(toml_loader):
+        raise RuntimeError("invalid TOML parser module: missing `load`")
+
     p = Path(path)
     with p.open("rb") as f:
-        data = tomllib.load(f)
+        data = toml_loader(f)
     if not isinstance(data, dict):
         raise ValueError(f"config root must be object: {path}")
     return data
@@ -96,6 +101,19 @@ class ScanConfig:
 
     @classmethod
     def from_file(cls, path: str) -> "ScanConfig":
+        """Load scanner configuration from a TOML file.
+
+        Args:
+            path: Path to the TOML config file.
+
+        Returns:
+            A validated `ScanConfig` instance.
+
+        Raises:
+            ValueError: If TOML keys have invalid types or shapes.
+            RuntimeError: If no TOML parser is available in the runtime.
+            OSError: If the file cannot be opened or read.
+        """
         data = _load_toml(path)
         scan = data.get("scan")
         vuln = data.get("vuln")
@@ -150,6 +168,19 @@ class ScanConfig:
 
     @classmethod
     def from_cli_args(cls, args: argparse.Namespace) -> "ScanConfig":
+        """Build configuration by merging file values with CLI overrides.
+
+        Args:
+            args: Parsed CLI namespace.
+
+        Returns:
+            A merged `ScanConfig` instance where explicit CLI flags win.
+
+        Raises:
+            ValueError: If the referenced config file contains invalid values.
+            RuntimeError: If TOML parsing support is unavailable.
+            OSError: If loading the config file fails.
+        """
         cfg = cls()
         config_path = getattr(args, "config", None)
         if isinstance(config_path, str) and config_path.strip():
@@ -192,6 +223,14 @@ class ScanConfig:
 
 
 def default_config_template() -> str:
+    """Return a default TOML template for JuiceChain configuration.
+
+    Args:
+        None.
+
+    Returns:
+        A UTF-8 text template that can be written to a `.toml` file.
+    """
     return """# JuiceChain configuration (TOML)
 # CLI flags override config values.
 

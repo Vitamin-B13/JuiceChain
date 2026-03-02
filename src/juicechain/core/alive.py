@@ -19,8 +19,18 @@ def check_http_alive(
     allow_redirects: bool = False,
     retries: int = 0,
 ) -> dict[str, Any]:
-    """
-    Alive means: we can get an HTTP response (any status code counts as alive).
+    """Check target liveness using HTTP HEAD/GET probing.
+
+    Args:
+        target: Target URL or host input.
+        timeout: Request timeout in seconds.
+        verify_tls: Whether TLS certificate validation is enabled.
+        allow_redirects: Whether redirects are followed.
+        retries: Retry attempts for transport failures.
+
+    Returns:
+        Structured result containing normalized target, liveness state, status
+        code, timing, and error details.
     """
     out: dict[str, Any] = {
         "target": target,

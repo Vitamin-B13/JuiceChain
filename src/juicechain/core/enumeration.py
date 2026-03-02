@@ -340,11 +340,11 @@ def _extract_asset_urls(base: str, html: bytes) -> list[str]:
         if _same_origin(base, abs_url):
             urls.add(abs_url)
 
-    for l in soup.find_all("link"):
-        href = (l.get("href") or "").strip()
+    for link_tag in soup.find_all("link"):
+        href = (link_tag.get("href") or "").strip()
         if not href:
             continue
-        rel = (l.get("rel") or [])
+        rel = (link_tag.get("rel") or [])
         rel_s = " ".join([str(x).lower() for x in rel]) if isinstance(rel, list) else str(rel).lower()
         if any(k in rel_s for k in ("stylesheet", "preload", "modulepreload")):
             abs_url = urljoin(base.rstrip("/") + "/", href)
@@ -365,6 +365,17 @@ class FallbackSignature:
 
 
 def detect_spa_fallback(base: str, client: HttpClient, *, timeout: float) -> FallbackSignature | None:
+    """Probe a random path to detect SPA catch-all fallback signatures.
+
+    Args:
+        base: Target base URL.
+        client: Shared HTTP client.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        A `FallbackSignature` when a stable fallback response is observed,
+        otherwise `None`.
+    """
     token = secrets.token_hex(8)
     probe_path = f"/__juicechain_probe__/{token}"
     url = join_url(base, probe_path)
@@ -397,6 +408,26 @@ def crawl_site(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
 ) -> dict[str, Any]:
+    """Crawl in-scope pages and extract attack-surface signals.
+
+    Args:
+        base: Target base URL.
+        start_path: Initial crawl path.
+        timeout: Request timeout in seconds.
+        max_pages: Maximum pages fetched by the crawler.
+        max_bytes: Maximum bytes read per HTML response.
+        allow_redirects: Whether redirects are followed.
+        verify_tls: Whether TLS certificate validation is enabled.
+        retries: Retry attempts for transport failures.
+        min_interval_ms: Minimum delay between requests in milliseconds.
+        fetch_spa_assets: Whether JS/CSS asset scanning is enabled.
+        max_spa_assets: Maximum number of assets fetched for SPA parsing.
+        spa_asset_max_bytes: Maximum bytes read per SPA asset.
+
+    Returns:
+        A crawler report with discovered pages, URLs, forms, params, SPA routes,
+        and operational errors.
+    """
     logger.info("crawler start: base=%s max_pages=%s", base, max_pages)
     start_url = urljoin(base.rstrip("/") + "/", start_path.lstrip("/"))
 
@@ -611,6 +642,22 @@ def dir_bruteforce(
     detect_fallback: bool = True,
     spa_routes: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Run content discovery against candidate paths.
+
+    Args:
+        base: Target base URL.
+        paths: Candidate path iterable.
+        timeout: Request timeout in seconds.
+        allow_redirects: Whether redirects are followed.
+        verify_tls: Whether TLS certificate validation is enabled.
+        retries: Retry attempts for transport failures.
+        min_interval_ms: Minimum delay between requests in milliseconds.
+        detect_fallback: Whether to perform SPA fallback noise detection.
+        spa_routes: Known SPA routes used for fallback-route reclassification.
+
+    Returns:
+        Content discovery report with endpoint findings and fallback noise split.
+    """
     logger.info("content discovery start: base=%s", base)
     interesting = {200, 204, 301, 302, 307, 308, 401, 403}
 
@@ -742,7 +789,12 @@ def _normalize_wordlist_entries(entries: Iterable[str]) -> list[str]:
 def _load_builtin_wordlist(category: str) -> list[str]:
     fname = f"{category}.txt"
     try:
-        traversable = importlib_resources.files("juicechain").joinpath("data", "wordlists", fname)
+        traversable = (
+            importlib_resources.files("juicechain")
+            .joinpath("data")
+            .joinpath("wordlists")
+            .joinpath(fname)
+        )
         with traversable.open("r", encoding="utf-8") as f:
             return _normalize_wordlist_entries(f.readlines())
     except Exception:
@@ -753,6 +805,17 @@ def _load_builtin_wordlist(category: str) -> list[str]:
 
 
 def default_wordlist(category: str = "common") -> list[str]:
+    """Load a built-in wordlist by category.
+
+    Args:
+        category: Wordlist category (`common`, `api`, `backup`, or `all`).
+
+    Returns:
+        Normalized candidate paths.
+
+    Raises:
+        ValueError: If category is not supported.
+    """
     cat = (category or "common").strip().lower()
     if cat == "all":
         merged: list[str] = []
@@ -765,6 +828,17 @@ def default_wordlist(category: str = "common") -> list[str]:
 
 
 def load_wordlist(path: str) -> list[str]:
+    """Load and normalize a custom path wordlist file.
+
+    Args:
+        path: Path to custom wordlist text file.
+
+    Returns:
+        Normalized unique path entries.
+
+    Raises:
+        OSError: If the wordlist file cannot be opened.
+    """
     out: list[str] = []
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -792,6 +866,27 @@ def enumerate_attack_surface(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
 ) -> dict[str, Any]:
+    """Run full attack-surface enumeration for a target.
+
+    Args:
+        target: Target URL or host input.
+        timeout: Request timeout in seconds.
+        max_pages: Maximum pages fetched by crawler.
+        max_bytes: Maximum bytes read per response.
+        paths: Optional explicit path candidates.
+        wordlist_file: Optional custom wordlist path.
+        wordlist_category: Built-in wordlist category when no file is provided.
+        allow_redirects: Whether redirects are followed.
+        verify_tls: Whether TLS certificate validation is enabled.
+        retries: Retry attempts for transport failures.
+        min_interval_ms: Minimum delay between requests in milliseconds.
+        fetch_spa_assets: Whether SPA asset scanning is enabled.
+        max_spa_assets: Maximum number of assets fetched for SPA parsing.
+        spa_asset_max_bytes: Maximum bytes read per SPA asset.
+
+    Returns:
+        Combined crawler and content discovery report with aggregated errors.
+    """
     logger.info("enumeration start: target=%s", target)
     out: dict[str, Any] = {"target": target, "ok": False, "crawler": None, "content_discovery": None, "errors": []}
 
