@@ -7,9 +7,12 @@ from typing import Any, Iterable
 from urllib.parse import urlparse, urlunparse, urljoin, parse_qs
 
 from bs4 import BeautifulSoup
+from juicechain.utils.logging import get_logger
 
 from .http_client import HttpClient, body_signature
 from .target import normalize_target_base, join_url
+
+logger = get_logger(__name__)
 
 
 _HASH_ROUTE_RE = re.compile(r"(?:/)?#/[A-Za-z0-9_\-\/]+")
@@ -268,6 +271,7 @@ def crawl_site(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
 ) -> dict[str, Any]:
+    logger.info("crawler start: base=%s max_pages=%s", base, max_pages)
     start_url = urljoin(base.rstrip("/") + "/", start_path.lstrip("/"))
 
     client = HttpClient(
@@ -310,6 +314,7 @@ def crawl_site(
             res = client.request("GET", current, timeout=timeout, max_bytes=max_bytes)
             if not res.ok:
                 errors.append(res.error or f"fetch failed: {current}")
+                logger.debug("crawler fetch failed: %s", errors[-1])
                 continue
 
             pages.append(
@@ -391,6 +396,7 @@ def crawl_site(
             for u in js_assets:
                 ares = client.request("GET", u, timeout=timeout, max_bytes=int(spa_asset_max_bytes))
                 if not ares.ok:
+                    logger.debug("crawler spa asset fetch failed: %s", u)
                     continue
                 try:
                     js_text = ares.body.decode("utf-8", errors="ignore")
@@ -420,7 +426,7 @@ def crawl_site(
         hash_routes = set(_norm_route(r) for r in hash_routes if (r or "").strip())
         routes_from_assets = set(_norm_route(r) for r in routes_from_assets if (r or "").strip())
 
-        return {
+        out = {
             "base": base,
             "start_url": start_url,
             "pages_fetched": pages,
@@ -436,6 +442,14 @@ def crawl_site(
             },
             "errors": errors,
         }
+        logger.info(
+            "crawler done: base=%s pages=%s urls=%s forms=%s",
+            base,
+            len(pages),
+            len(discovered_urls),
+            len(forms),
+        )
+        return out
     finally:
         client.close()
 
@@ -466,6 +480,7 @@ def dir_bruteforce(
     detect_fallback: bool = True,
     spa_routes: list[str] | None = None,
 ) -> dict[str, Any]:
+    logger.info("content discovery start: base=%s", base)
     interesting = {200, 204, 301, 302, 307, 308, 401, 403}
 
     findings: list[dict[str, Any]] = []
@@ -505,6 +520,7 @@ def dir_bruteforce(
             res = client.request("GET", url, timeout=timeout, max_bytes=120_000)
             if not res.ok:
                 errors.append(res.error or f"fetch failed: {url}")
+                logger.debug("content discovery fetch failed: %s", errors[-1])
                 continue
 
             if res.status_code not in interesting:
@@ -546,7 +562,7 @@ def dir_bruteforce(
         spa_mapped = [f for f in findings if f.get("kind") == "spa_route"]
         noise = [f for f in findings if f.get("kind") == "fallback_noise"]
 
-        return {
+        out = {
             "base": base,
             "tested": len(path_list),
             "fallback_probe": None
@@ -563,6 +579,15 @@ def dir_bruteforce(
             "findings_fallback_noise": noise,
             "errors": errors,
         }
+        logger.info(
+            "content discovery done: base=%s tested=%s server=%s spa=%s noise=%s",
+            base,
+            len(path_list),
+            len(confirmed),
+            len(spa_mapped),
+            len(noise),
+        )
+        return out
     finally:
         client.close()
 
@@ -613,6 +638,7 @@ def enumerate_attack_surface(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
 ) -> dict[str, Any]:
+    logger.info("enumeration start: target=%s", target)
     out: dict[str, Any] = {"target": target, "ok": False, "crawler": None, "content_discovery": None, "errors": []}
 
     try:
@@ -620,6 +646,7 @@ def enumerate_attack_surface(
         out["target"] = base
     except Exception as e:
         out["errors"].append(f"{type(e).__name__}: {e}")
+        logger.warning("enumeration target normalize failed: %s", out["errors"][-1])
         return out
 
     crawler = crawl_site(
@@ -639,8 +666,10 @@ def enumerate_attack_surface(
 
     if wordlist_file:
         wl = load_wordlist(wordlist_file)
+        logger.info("enumeration using custom wordlist: %s entries=%s", wordlist_file, len(wl))
     else:
         wl = paths if paths is not None else default_wordlist()
+        logger.info("enumeration using default wordlist entries=%s", len(wl))
 
     # Merge SPA routes from:
     # - routes extracted from assets
@@ -671,4 +700,10 @@ def enumerate_attack_surface(
 
     out["errors"].extend(crawler.get("errors", []))
     out["errors"].extend(content.get("errors", []))
+    logger.info(
+        "enumeration done: target=%s ok=%s errors=%s",
+        out["target"],
+        out["ok"],
+        len(out["errors"]),
+    )
     return out

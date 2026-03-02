@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 import requests
+from juicechain.utils.logging import get_logger
 
 
 _DEFAULT_UA = "JuiceChain/0.5 (+https://github.com/Vitamin-B13/JuiceChain)"
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -178,6 +180,14 @@ class HttpClient:
             except requests.RequestException as e:
                 elapsed_ms = int(round((time.perf_counter() - start) * 1000))
                 last_err = f"{type(e).__name__}: {e}"
+                logger.debug(
+                    "http request failed: method=%s url=%s attempt=%s/%s error=%s",
+                    method,
+                    url,
+                    attempt + 1,
+                    self.retries + 1,
+                    last_err,
+                )
                 if attempt < self.retries:
                     time.sleep(self.backoff * (2 ** attempt))
                     continue

