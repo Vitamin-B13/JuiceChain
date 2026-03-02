@@ -9,7 +9,7 @@ import requests
 from juicechain.utils.logging import get_logger
 
 
-_DEFAULT_UA = "JuiceChain/0.5 (+https://github.com/Vitamin-B13/JuiceChain)"
+_DEFAULT_UA = "JuiceChain/0.6.1.0 (+https://github.com/Vitamin-B13/JuiceChain)"
 logger = get_logger(__name__)
 
 
