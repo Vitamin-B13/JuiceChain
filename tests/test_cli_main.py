@@ -66,3 +66,21 @@ def test_init_command_parser_defaults():
     args = parser.parse_args(["init"])
     assert args.config_output == "juicechain.toml"
     assert args.force is False
+
+
+def test_report_command_accepts_vuln_and_html_format():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["report", "-i", "scan.json", "--vuln", "vuln.json", "--format", "html", "-o", "report.html"]
+    )
+    assert args.vuln == "vuln.json"
+    assert args.format == "html"
+    assert args.report_output == "report.html"
+
+
+def test_pipeline_command_parser_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["pipeline", "-t", "http://example.test"])
+    assert args.format == "markdown"
+    assert args.wordlist_category == "common"
+    assert args.report_output is None

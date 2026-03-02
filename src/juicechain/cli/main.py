@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable
 
+from juicechain.core.report import build_scan_report, markdown_to_html
 from juicechain.core.config import ScanConfig, default_config_template
 from juicechain.core.alive import check_http_alive
 from juicechain.core.enumeration import enumerate_attack_surface
@@ -61,6 +62,22 @@ def _extract_scan_document(doc: Any) -> dict[str, Any]:
     raise CliUsageError("input JSON is not a valid scan result")
 
 
+def _extract_vuln_document(doc: Any) -> dict[str, Any]:
+    if not isinstance(doc, dict):
+        raise CliUsageError("vuln input must be a JSON object")
+
+    if isinstance(doc.get("findings"), list):
+        return doc
+
+    meta = doc.get("meta")
+    data = doc.get("data")
+    if isinstance(meta, dict) and meta.get("command") == "vuln" and isinstance(data, dict):
+        if isinstance(data.get("findings"), list):
+            return data
+
+    raise CliUsageError("input JSON is not a valid vuln result")
+
+
 def _load_scan_config(args: argparse.Namespace) -> ScanConfig:
     config_path = getattr(args, "config", None)
     try:
@@ -109,72 +126,6 @@ def _resolve_ok_for_scan(data: Any, errors: list[str]) -> bool:
         return False
     alive = data.get("alive") if isinstance(data.get("alive"), dict) else {}
     return bool(alive.get("alive")) and len(errors) == 0
-
-
-def _build_report_markdown(data: dict[str, Any]) -> str:
-    md_lines: list[str] = []
-    meta = data.get("meta", {})
-    md_lines.append("# JuiceChain Report")
-    md_lines.append("")
-    md_lines.append(f"- Version: {meta.get('version')}")
-    md_lines.append(f"- Timestamp: {meta.get('timestamp')}")
-    md_lines.append(f"- Duration(ms): {meta.get('duration_ms')}")
-    md_lines.append(f"- Target: {data.get('target')}")
-    md_lines.append("")
-
-    alive_data = data.get("alive", {})
-    md_lines.append("## Liveness")
-    md_lines.append("")
-    md_lines.append(f"- Alive: {alive_data.get('alive')}")
-    md_lines.append(f"- Status: {alive_data.get('status_code')}")
-    md_lines.append(f"- RTT(ms): {alive_data.get('response_time_ms')}")
-    if alive_data.get("error"):
-        md_lines.append(f"- Error: {alive_data.get('error')}")
-    md_lines.append("")
-
-    info_data = data.get("info", {})
-    md_lines.append("## Passive Info")
-    md_lines.append("")
-    hp = info_data.get("homepage", {}) or {}
-    md_lines.append(f"- Homepage URL: {hp.get('url')}")
-    md_lines.append(f"- Status: {hp.get('status_code')}")
-    md_lines.append(f"- Title: {hp.get('title')}")
-    fp = info_data.get("fingerprint", {}) or {}
-    md_lines.append(
-        f"- Fingerprint: server={fp.get('server')} x_powered_by={fp.get('x_powered_by')} hints={fp.get('hints')}"
-    )
-    sh = info_data.get("security_headers", {}) or {}
-    md_lines.append(f"- Missing security headers: {sh.get('missing')}")
-    dep = sh.get("deprecated_present") or {}
-    if dep:
-        md_lines.append(f"- Deprecated security headers present: {dep}")
-    spa_hints = info_data.get("spa_hints") or {}
-    if spa_hints:
-        md_lines.append(f"- SPA hints: {spa_hints}")
-    md_lines.append("")
-
-    enum_data = data.get("enum", {})
-    md_lines.append("## Attack Surface Enumeration")
-    md_lines.append("")
-    crawler = enum_data.get("crawler", {}) or {}
-    pages = crawler.get("pages_fetched", []) or []
-    md_lines.append(f"- Pages fetched: {len(pages)}")
-    md_lines.append(f"- Hash routes (from html/headers): {crawler.get('hash_routes')}")
-    spa = crawler.get("spa") or {}
-    md_lines.append(f"- SPA routes (from assets): {spa.get('routes_from_assets')}")
-    md_lines.append(f"- API candidates (from assets): {spa.get('api_candidates_from_assets')}")
-    md_lines.append("")
-
-    cd = enum_data.get("content_discovery", {}) or {}
-    conf = cd.get("findings_server_endpoints", []) or []
-    spa_routes = cd.get("findings_spa_routes", []) or []
-    noise = cd.get("findings_fallback_noise", []) or []
-    md_lines.append(f"- Server endpoints: {len(conf)}")
-    md_lines.append(f"- SPA routes mapped: {len(spa_routes)}")
-    md_lines.append(f"- Fallback noise: {len(noise)}")
-    md_lines.append("")
-
-    return "\n".join(md_lines)
 
 
 def _configure_runtime_logging(args: argparse.Namespace) -> None:
@@ -266,7 +217,13 @@ def _run_command(
         return 1
 
 
-def _add_runtime_options(parser: argparse.ArgumentParser, *, allow_output_file: bool) -> None:
+def _add_runtime_options(
+    parser: argparse.ArgumentParser,
+    *,
+    allow_output_file: bool,
+    include_format: bool = True,
+    include_pretty: bool = True,
+) -> None:
     parser.add_argument(
         "-c",
         "--config",
@@ -274,13 +231,15 @@ def _add_runtime_options(parser: argparse.ArgumentParser, *, allow_output_file: 
         default=None,
         help="Path to TOML config file",
     )
-    parser.add_argument(
-        "--format",
-        choices=("json", "table"),
-        default="json",
-        help="Result display format (default: json)",
-    )
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+    if include_format:
+        parser.add_argument(
+            "--format",
+            choices=("json", "table"),
+            default="json",
+            help="Result display format (default: json)",
+        )
+    if include_pretty:
+        parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
@@ -605,29 +564,56 @@ def build_parser() -> argparse.ArgumentParser:
 
     init_cmd.set_defaults(func=_init_cmd)
 
-    report = subparsers.add_parser("report", help="Generate a Markdown report from scan JSON")
+    report = subparsers.add_parser("report", help="Generate report (Markdown/HTML) from scan JSON")
     report.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
+    report.add_argument(
+        "--vuln",
+        default=None,
+        help="Optional vuln JSON file (from juicechain vuln)",
+    )
     report.add_argument(
         "-o",
         "--output",
-        dest="markdown_output",
+        dest="report_output",
         default=None,
-        help="Output markdown file (default: stdout)",
+        help="Output report file (default: stdout)",
     )
-    _add_runtime_options(report, allow_output_file=False)
+    report.add_argument(
+        "--format",
+        choices=("markdown", "html"),
+        default="markdown",
+        help="Report format (default: markdown)",
+    )
+    _add_runtime_options(
+        report,
+        allow_output_file=False,
+        include_format=False,
+        include_pretty=False,
+    )
 
     def _report_cmd(args: argparse.Namespace) -> int:
         def _runner() -> dict[str, Any]:
-            raw = _load_json_input(Path(args.input))
-            scan_doc = _extract_scan_document(raw)
-            out_md = _build_report_markdown(scan_doc)
-            if args.markdown_output:
-                Path(args.markdown_output).write_text(out_md, encoding="utf-8")
+            scan_raw = _load_json_input(Path(args.input))
+            _extract_scan_document(scan_raw)
+
+            vuln_raw: dict[str, Any] | None = None
+            if args.vuln:
+                vuln_loaded = _load_json_input(Path(args.vuln))
+                _extract_vuln_document(vuln_loaded)
+                vuln_raw = vuln_loaded
+
+            out_md = build_scan_report(scan_raw, vuln_raw)
+            out_text = markdown_to_html(out_md) if args.format == "html" else out_md
+
+            if args.report_output:
+                Path(args.report_output).write_text(out_text, encoding="utf-8")
             return {
                 "input_file": args.input,
-                "output_file": args.markdown_output,
-                "line_count": len(out_md.splitlines()),
-                "markdown": None if args.markdown_output else out_md,
+                "vuln_file": args.vuln,
+                "output_file": args.report_output,
+                "output_format": args.format,
+                "line_count": len(out_text.splitlines()),
+                "report": None if args.report_output else out_text,
             }
 
         return _run_command(
@@ -638,6 +624,175 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     report.set_defaults(func=_report_cmd)
+
+    pipeline = subparsers.add_parser(
+        "pipeline",
+        help="Run end-to-end flow: scan -> vuln -> report",
+    )
+    pipeline.add_argument("-t", "--target", required=True, help="Target URL or host[:port]")
+    pipeline.add_argument("--timeout", type=float, default=None, help="HTTP timeout in seconds")
+    pipeline.add_argument("--max-pages", type=int, default=None, help="Max pages to fetch in crawler")
+    pipeline.add_argument(
+        "--max-bytes",
+        type=int,
+        default=None,
+        help="Max bytes to read per response",
+    )
+    pipeline.add_argument("--follow-redirects", action="store_true", default=None, help="Follow redirects")
+    pipeline.add_argument("--insecure", action="store_true", default=None, help="Disable TLS cert verification")
+    pipeline.add_argument("--retries", type=int, default=None, help="Retry count on network errors")
+    pipeline.add_argument(
+        "--rate-limit-ms",
+        type=int,
+        default=None,
+        help="Min interval between requests in ms",
+    )
+    pipeline.add_argument("--wordlist", type=str, default=None, help="Path to custom wordlist file (optional)")
+    pipeline.add_argument(
+        "--wordlist-category",
+        choices=("common", "api", "backup", "all"),
+        default="common",
+        help="Built-in wordlist category when --wordlist is not provided (default: common)",
+    )
+    pipeline.add_argument("--no-spa-assets", action="store_true", help="Disable SPA asset fetching")
+    pipeline.add_argument("--max-spa-assets", type=int, default=6, help="Max JS assets to fetch (default: 6)")
+    pipeline.add_argument(
+        "--spa-asset-bytes",
+        type=int,
+        default=450_000,
+        help="Max bytes per JS asset fetch (default: 450000)",
+    )
+    pipeline.add_argument("--dom-xss", action="store_true", default=None, help="Enable DOM-XSS verification")
+    pipeline.add_argument("--headed", action="store_true", default=None, help="Run browser in headed mode")
+    pipeline.add_argument("--dry-run", action="store_true", help="Skip active vuln probes and only derive points")
+    pipeline.add_argument(
+        "-o",
+        "--output",
+        dest="report_output",
+        default=None,
+        help="Output report file (default: stdout)",
+    )
+    pipeline.add_argument(
+        "--format",
+        choices=("markdown", "html"),
+        default="markdown",
+        help="Report format (default: markdown)",
+    )
+    _add_runtime_options(
+        pipeline,
+        allow_output_file=False,
+        include_format=False,
+        include_pretty=False,
+    )
+
+    def _pipeline_cmd(args: argparse.Namespace) -> int:
+        def _runner() -> dict[str, Any]:
+            cfg = _load_scan_config(args)
+            cli_version = _get_version()
+
+            scan_doc = {
+                "target": args.target,
+                "alive": check_http_alive(
+                    args.target,
+                    timeout=cfg.timeout,
+                    verify_tls=cfg.verify_tls,
+                    allow_redirects=cfg.allow_redirects,
+                    retries=cfg.retries,
+                ),
+                "info": gather_info(
+                    args.target,
+                    timeout=cfg.timeout,
+                    verify_tls=cfg.verify_tls,
+                    allow_redirects=cfg.allow_redirects,
+                    max_bytes=cfg.max_bytes,
+                    retries=cfg.retries,
+                ),
+                "enum": enumerate_attack_surface(
+                    args.target,
+                    timeout=cfg.timeout,
+                    max_pages=cfg.max_pages,
+                    max_bytes=cfg.max_bytes,
+                    wordlist_file=args.wordlist,
+                    wordlist_category=args.wordlist_category,
+                    allow_redirects=cfg.allow_redirects,
+                    verify_tls=cfg.verify_tls,
+                    retries=cfg.retries,
+                    min_interval_ms=cfg.rate_limit_ms,
+                    fetch_spa_assets=not args.no_spa_assets,
+                    max_spa_assets=args.max_spa_assets,
+                    spa_asset_max_bytes=args.spa_asset_bytes,
+                ),
+            }
+
+            if args.dry_run:
+                vuln_doc = vuln_dry_run_report(scan_doc, version=cli_version, config=cfg)
+            else:
+                vuln_doc = scan_vulnerabilities(
+                    scan_doc,
+                    version=cli_version,
+                    timeout=float(cfg.timeout),
+                    verify_tls=bool(cfg.verify_tls),
+                    allow_redirects=bool(cfg.allow_redirects),
+                    retries=int(cfg.retries),
+                    min_interval_ms=int(cfg.rate_limit_ms),
+                    max_bytes=int(cfg.max_bytes),
+                    enable_dom_xss=bool(cfg.enable_dom_xss),
+                    dom_xss_headless=not bool(args.headed),
+                    config=cfg,
+                )
+
+            scan_report_input = {
+                "meta": {
+                    "tool": "juicechain",
+                    "version": cli_version,
+                    "command": "scan",
+                    "timestamp": int(time.time()),
+                },
+                "data": scan_doc,
+            }
+            vuln_report_input = {
+                "meta": {
+                    "tool": "juicechain",
+                    "version": cli_version,
+                    "command": "vuln",
+                    "timestamp": int(time.time()),
+                },
+                "data": vuln_doc,
+            }
+
+            out_md = build_scan_report(scan_report_input, vuln_report_input)
+            out_text = markdown_to_html(out_md) if args.format == "html" else out_md
+            if args.report_output:
+                Path(args.report_output).write_text(out_text, encoding="utf-8")
+
+            scan_errors = _extract_scan_errors(scan_doc)
+            vuln_errors = _extract_errors_from_obj(vuln_doc)
+            all_errors = normalize_errors(scan_errors + vuln_errors)
+            alive_info = scan_doc.get("alive") if isinstance(scan_doc.get("alive"), dict) else {}
+            findings = vuln_doc.get("findings") if isinstance(vuln_doc.get("findings"), list) else []
+
+            return {
+                "ok": bool(alive_info.get("alive")) and len(all_errors) == 0,
+                "errors": all_errors,
+                "target": args.target,
+                "dry_run": bool(args.dry_run),
+                "intermediate_transport": "memory",
+                "scan_alive": bool(alive_info.get("alive")),
+                "findings_count": len(findings),
+                "output_file": args.report_output,
+                "output_format": args.format,
+                "line_count": len(out_text.splitlines()),
+                "report": None if args.report_output else out_text,
+            }
+
+        return _run_command(
+            args,
+            command="pipeline",
+            target=args.target,
+            runner=_runner,
+        )
+
+    pipeline.set_defaults(func=_pipeline_cmd)
     return parser
 
 
