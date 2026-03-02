@@ -22,6 +22,38 @@ _HASH_ROUTE_QUOTED_RE = re.compile(r"""["'](?:/)?#/[A-Za-z0-9_\-\/]+["']""")
 _ANGULAR_ROUTE_PATH_RE = re.compile(r"""(?:\bpath\b|["']path["'])\s*:\s*["']([^"']{0,80})["']""")
 _ANGULAR_REDIRECT_RE = re.compile(r"""(?:\bredirectTo\b|["']redirectTo["'])\s*:\s*["']([^"']{0,120})["']""")
 
+# React router / link / navigation patterns
+_REACT_ROUTE_TAG_RE = re.compile(r"""<Route\b[^>]*\bpath\s*=\s*["'](/[^"'<>]{1,120})["']""")
+_REACT_PATH_CFG_RE = re.compile(r"""\bpath\s*:\s*["'](/[^"']{1,120})["']""")
+_REACT_TO_ATTR_RE = re.compile(r"""\bto\s*=\s*["'](/[^"'<>]{1,120})["']""")
+_REACT_TO_CFG_RE = re.compile(r"""\bto\s*:\s*["'](/[^"']{1,120})["']""")
+_REACT_NAVIGATE_CALL_RE = re.compile(r"""\bnavigate\s*\(\s*["'](/[^"']{1,120})["']\s*\)""")
+_REACT_USE_NAVIGATE_CALL_RE = re.compile(r"""\buseNavigate\s*\(\s*\)\s*\(\s*["'](/[^"']{1,120})["']\s*\)""")
+
+# Vue router patterns
+_VUE_PATH_CFG_RE = re.compile(r"""\bpath\s*:\s*["'](/[^"']{1,120})["']""")
+_VUE_NAME_CFG_RE = re.compile(r"""\bname\s*:\s*["']([A-Za-z0-9_\-]{1,40})["']""")
+_VUE_ROUTER_PUSH_RE = re.compile(r"""\b(?:this\.\$router|router)\.push\s*\(\s*["'](/[^"']{1,120})["']\s*\)""")
+
+# Generic path-like string extraction from JS.
+_GENERIC_PATH_STRING_RE = re.compile(r"""["'](/[^"'\\\s]{1,120})["']""")
+
+_STATIC_PATH_SUFFIXES = (
+    ".js",
+    ".css",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".map",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".ico",
+    ".webp",
+)
+
 # Rough API/path candidates in JS bundles
 _API_CANDIDATE_RE = re.compile(
     r"""["']/(?:rest|api|graphql|socket\.io|ws|uploads|assets)[A-Za-z0-9_\-\/\.\?=&%]*["']"""
@@ -188,6 +220,96 @@ def _scan_angular_routes_from_js(text: str) -> tuple[set[str], set[str]]:
         hash_routes.add(f"#/{seg}")
 
     return route_paths, hash_routes
+
+
+def _clean_js_route_path(path: str) -> str | None:
+    s = (path or "").strip()
+    if not s:
+        return None
+    if not s.startswith("/"):
+        return None
+
+    if "?" in s:
+        s = s.split("?", 1)[0]
+    if "#" in s:
+        s = s.split("#", 1)[0]
+
+    s = s.strip()
+    if not s or s == "/":
+        return None
+    if len(s) > 80:
+        return None
+    if any(ch.isspace() for ch in s):
+        return None
+    if not re.fullmatch(r"/[A-Za-z0-9_:\-/]*", s):
+        return None
+
+    low = s.lower()
+    if any(low.endswith(ext) for ext in _STATIC_PATH_SUFFIXES):
+        return None
+    if ("node_modules/" in low) or low.startswith("/node_modules"):
+        return None
+    if ("webpack://" in low) or ("/webpack/" in low) or low.startswith("/webpack"):
+        return None
+    if "__webpack" in low:
+        return None
+
+    if s != "/":
+        s = s.rstrip("/")
+    return s
+
+
+def _scan_react_routes_from_js(text: str) -> set[str]:
+    out: set[str] = set()
+    if not text:
+        return out
+
+    patterns = (
+        _REACT_ROUTE_TAG_RE,
+        _REACT_PATH_CFG_RE,
+        _REACT_TO_ATTR_RE,
+        _REACT_TO_CFG_RE,
+        _REACT_NAVIGATE_CALL_RE,
+        _REACT_USE_NAVIGATE_CALL_RE,
+    )
+    for pat in patterns:
+        for m in pat.finditer(text):
+            p = _clean_js_route_path(m.group(1))
+            if p:
+                out.add(p)
+    return out
+
+
+def _scan_vue_routes_from_js(text: str) -> set[str]:
+    out: set[str] = set()
+    if not text:
+        return out
+
+    for pat in (_VUE_PATH_CFG_RE, _VUE_ROUTER_PUSH_RE):
+        for m in pat.finditer(text):
+            p = _clean_js_route_path(m.group(1))
+            if p:
+                out.add(p)
+
+    # Route names can be auxiliary hints (e.g. name: "user-detail" -> "/user-detail").
+    for m in _VUE_NAME_CFG_RE.finditer(text):
+        p = _clean_js_route_path(f"/{m.group(1)}")
+        if p:
+            out.add(p)
+
+    return out
+
+
+def _scan_generic_paths_from_js(text: str) -> set[str]:
+    out: set[str] = set()
+    if not text:
+        return out
+
+    for m in _GENERIC_PATH_STRING_RE.finditer(text):
+        p = _clean_js_route_path(m.group(1))
+        if p:
+            out.add(p)
+    return out
 
 
 def _scan_api_candidates_from_js(text: str) -> set[str]:
@@ -410,6 +532,11 @@ def crawl_site(
                 rpaths, hroutes = _scan_angular_routes_from_js(js_text)
                 route_paths_from_assets |= rpaths
                 routes_from_assets |= hroutes
+
+                # react / vue / generic route-like paths
+                routes_from_assets |= _scan_react_routes_from_js(js_text)
+                routes_from_assets |= _scan_vue_routes_from_js(js_text)
+                routes_from_assets |= _scan_generic_paths_from_js(js_text)
 
                 # API candidates
                 api_candidates |= _scan_api_candidates_from_js(js_text)
