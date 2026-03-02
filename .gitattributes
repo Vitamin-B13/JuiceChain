@@ -1,0 +1,7 @@
+# 默认：所有文本文件在仓库中统一为 LF
+* text=auto eol=lf
+
+# Windows 脚本：保持 CRLF（如果你项目里有这些文件）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
