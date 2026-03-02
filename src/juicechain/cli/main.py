@@ -1,5 +1,5 @@
-from __future__ import annotations
-from juicechain.core.vulnerability import vuln_dry_run_report
+﻿from __future__ import annotations
+from juicechain.core.vulnerability import vuln_dry_run_report, scan_vulnerabilities
 
 
 import argparse
@@ -26,6 +26,22 @@ def _dump(obj: Any, *, pretty: bool) -> str:
     if pretty:
         return json.dumps(obj, ensure_ascii=False, indent=2)
     return json.dumps(obj, ensure_ascii=False)
+
+
+def _load_json_input(path: Path) -> Any:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise SystemExit(f"input file not found: {path}") from e
+    except UnicodeDecodeError as e:
+        raise SystemExit(f"input file is not valid UTF-8: {path} ({e})") from e
+    except OSError as e:
+        raise SystemExit(f"failed to read input file: {path} ({e})") from e
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"invalid JSON in {path} at line {e.lineno}, column {e.colno}: {e.msg}") from e
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -189,21 +205,41 @@ def build_parser() -> argparse.ArgumentParser:
 
     enum_cmd.set_defaults(func=_enum_cmd)
 
-        # vuln (week5 skeleton): derive input points + dry-run output
+    # vuln (week5 skeleton): derive input points + dry-run output
     vuln = subparsers.add_parser("vuln", help="Vulnerability module (week5: skeleton/dry-run)")
     vuln.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
     vuln.add_argument("--dry-run", action="store_true", help="Only derive input points and output stats (no requests)")
     vuln.add_argument("-o", "--output", type=str, default=None, help="Write JSON result to file")
     vuln.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
-
+    vuln.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout seconds (default: 3.0)")
+    vuln.add_argument("--max-bytes", type=int, default=200_000, help="Max response bytes to read (default: 200000)")
+    vuln.add_argument("--retries", type=int, default=0, help="Retry times (default: 0)")
+    vuln.add_argument("--rate-limit-ms", type=int, default=0, help="Min interval between requests in ms (default: 0)")
+    vuln.add_argument("--insecure", action="store_true", help="Disable TLS verification")
+    vuln.add_argument("--follow-redirects", action="store_true", help="Follow redirects")
+    vuln.add_argument("--dom-xss", action="store_true", help="Enable DOM-XSS verification via Playwright")
+    vuln.add_argument("--headed", action="store_true", help="Run browser in headed mode (for debugging)")
+    
+    
     def _vuln_cmd(args: argparse.Namespace) -> None:
         p = Path(args.input)
-        scan_doc = json.loads(p.read_text(encoding="utf-8"))
+        scan_doc = _load_json_input(p)
 
-        # Step 5.1: only dry-run is meaningful; non-dry-run kept as placeholder
-        out = vuln_dry_run_report(scan_doc, version=_get_version())
-        if not args.dry_run:
-            out["meta"]["mode"] = "placeholder"
+        if args.dry_run:
+            out = vuln_dry_run_report(scan_doc, version=_get_version())
+        else:
+            out = scan_vulnerabilities(
+                scan_doc,
+                version=_get_version(),
+                timeout=float(args.timeout),
+                verify_tls=not bool(args.insecure),
+                allow_redirects=bool(args.follow_redirects),
+                retries=int(args.retries),
+                min_interval_ms=int(args.rate_limit_ms),
+                max_bytes=int(args.max_bytes),
+                enable_dom_xss=bool(args.dom_xss),
+                dom_xss_headless=not bool(args.headed),
+            )
 
         s = _dump(out, pretty=args.pretty)
         if args.output:
@@ -213,14 +249,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     vuln.set_defaults(func=_vuln_cmd)
 
-    # report（保持你 v0.5 那份不变即可）
+    # report: keep output format stable for v0.5-compatible reports
     report = subparsers.add_parser("report", help="Generate a Markdown report from scan JSON")
+
     report.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
     report.add_argument("-o", "--output", default=None, help="Output markdown file (default: stdout)")
 
     def _report_cmd(args: argparse.Namespace) -> None:
         p = Path(args.input)
-        data = json.loads(p.read_text(encoding="utf-8"))
+        data = _load_json_input(p)
 
         md_lines: list[str] = []
         meta = data.get("meta", {})
@@ -304,3 +341,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

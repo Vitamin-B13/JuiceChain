@@ -114,6 +114,9 @@ class HttpClient:
         allow_redirects: bool | None = None,
         verify_tls: bool | None = None,
         headers: Mapping[str, str] | None = None,
+        params: Mapping[str, Any] | None = None,
+        data: Any | None = None,
+        json_data: Any | None = None,
     ) -> HttpResponse:
         method = (method or "GET").upper().strip()
         timeout = float(timeout if timeout is not None else self.timeout)
@@ -130,7 +133,7 @@ class HttpClient:
             self._throttle()
             start = time.perf_counter()
             try:
-                r = self._session.request(
+                with self._session.request(
                     method=method,
                     url=url,
                     timeout=timeout,
@@ -139,36 +142,38 @@ class HttpClient:
                     headers=merged_headers,
                     proxies=self._proxies,
                     stream=True,
-                )
+                    params=dict(params) if params else None,
+                    data=data,
+                    json=json_data,
+                ) as r:
+                    body = b""
+                    if max_bytes != 0:
+                        chunks: list[bytes] = []
+                        total = 0
+                        for chunk in r.iter_content(chunk_size=16_384):
+                            if not chunk:
+                                continue
+                            remain = max_bytes - total if max_bytes > 0 else len(chunk)
+                            if max_bytes > 0 and remain <= 0:
+                                break
+                            if max_bytes > 0 and len(chunk) > remain:
+                                chunk = chunk[:remain]
+                            chunks.append(chunk)
+                            total += len(chunk)
+                            if max_bytes > 0 and total >= max_bytes:
+                                break
+                        body = b"".join(chunks)
 
-                body = b""
-                if max_bytes != 0:
-                    chunks: list[bytes] = []
-                    total = 0
-                    for chunk in r.iter_content(chunk_size=16_384):
-                        if not chunk:
-                            continue
-                        remain = max_bytes - total if max_bytes > 0 else len(chunk)
-                        if max_bytes > 0 and remain <= 0:
-                            break
-                        if max_bytes > 0 and len(chunk) > remain:
-                            chunk = chunk[:remain]
-                        chunks.append(chunk)
-                        total += len(chunk)
-                        if max_bytes > 0 and total >= max_bytes:
-                            break
-                    body = b"".join(chunks)
-
-                elapsed_ms = int(round((time.perf_counter() - start) * 1000))
-                return HttpResponse(
-                    ok=True,
-                    url=url,
-                    status_code=int(getattr(r, "status_code", 0) or 0),
-                    headers=_headers_to_dict(getattr(r, "headers", {})),
-                    body=body,
-                    response_time_ms=elapsed_ms,
-                    error=None,
-                )
+                    elapsed_ms = int(round((time.perf_counter() - start) * 1000))
+                    return HttpResponse(
+                        ok=True,
+                        url=url,
+                        status_code=int(getattr(r, "status_code", 0) or 0),
+                        headers=_headers_to_dict(getattr(r, "headers", {})),
+                        body=body,
+                        response_time_ms=elapsed_ms,
+                        error=None,
+                    )
 
             except requests.RequestException as e:
                 elapsed_ms = int(round((time.perf_counter() - start) * 1000))
@@ -195,7 +200,6 @@ class HttpClient:
             response_time_ms=None,
             error=last_err or "unknown error",
         )
-
 
 def body_signature(body: bytes, *, max_len: int = 8192) -> str:
     """
