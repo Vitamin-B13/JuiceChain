@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import secrets
 from dataclasses import dataclass
+from importlib import resources as importlib_resources
+from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse, urlunparse, urljoin, parse_qs
 
@@ -60,6 +62,8 @@ _API_CANDIDATE_RE = re.compile(
 )
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+_WORDLIST_CATEGORIES: tuple[str, ...] = ("common", "api", "backup")
 
 
 def _canonicalize_url(url: str) -> str:
@@ -719,23 +723,45 @@ def dir_bruteforce(
         client.close()
 
 
-def default_wordlist() -> list[str]:
-    return [
-        "/robots.txt",
-        "/sitemap.xml",
-        "/security.txt",
-        "/.well-known/security.txt",
-        "/admin",
-        "/login",
-        "/register",
-        "/api",
-        "/swagger",
-        "/openapi.json",
-        "/graphql",
-        "/backup",
-        "/.git/",
-        "/.env",
-    ]
+def _normalize_wordlist_entries(entries: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in entries:
+        s = (raw or "").strip()
+        if not s or s.startswith("#"):
+            continue
+        if not s.startswith("/"):
+            s = "/" + s
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def _load_builtin_wordlist(category: str) -> list[str]:
+    fname = f"{category}.txt"
+    try:
+        traversable = importlib_resources.files("juicechain").joinpath("data", "wordlists", fname)
+        with traversable.open("r", encoding="utf-8") as f:
+            return _normalize_wordlist_entries(f.readlines())
+    except Exception:
+        # Fallback for editable/dev environments when package data lookup fails.
+        p = Path(__file__).resolve().parents[1] / "data" / "wordlists" / fname
+        with p.open("r", encoding="utf-8", errors="ignore") as f:
+            return _normalize_wordlist_entries(f.readlines())
+
+
+def default_wordlist(category: str = "common") -> list[str]:
+    cat = (category or "common").strip().lower()
+    if cat == "all":
+        merged: list[str] = []
+        for c in _WORDLIST_CATEGORIES:
+            merged.extend(_load_builtin_wordlist(c))
+        return _normalize_wordlist_entries(merged)
+    if cat not in _WORDLIST_CATEGORIES:
+        raise ValueError(f"unsupported wordlist category: {category!r}")
+    return _load_builtin_wordlist(cat)
 
 
 def load_wordlist(path: str) -> list[str]:
@@ -746,7 +772,7 @@ def load_wordlist(path: str) -> list[str]:
             if not s or s.startswith("#"):
                 continue
             out.append(s)
-    return out
+    return _normalize_wordlist_entries(out)
 
 
 def enumerate_attack_surface(
@@ -757,6 +783,7 @@ def enumerate_attack_surface(
     max_bytes: int = 300_000,
     paths: list[str] | None = None,
     wordlist_file: str | None = None,
+    wordlist_category: str = "common",
     allow_redirects: bool = False,
     verify_tls: bool = True,
     retries: int = 0,
@@ -795,8 +822,16 @@ def enumerate_attack_surface(
         wl = load_wordlist(wordlist_file)
         logger.info("enumeration using custom wordlist: %s entries=%s", wordlist_file, len(wl))
     else:
-        wl = paths if paths is not None else default_wordlist()
-        logger.info("enumeration using default wordlist entries=%s", len(wl))
+        if paths is not None:
+            wl = _normalize_wordlist_entries(paths)
+            logger.info("enumeration using explicit path list entries=%s", len(wl))
+        else:
+            wl = default_wordlist(wordlist_category)
+            logger.info(
+                "enumeration using builtin wordlist: category=%s entries=%s",
+                wordlist_category,
+                len(wl),
+            )
 
     # Merge SPA routes from:
     # - routes extracted from assets

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from juicechain.cli.main import CliUsageError, _emit_payload, _extract_scan_document, _load_json_input
+from juicechain.cli.main import CliUsageError, _emit_payload, _extract_scan_document, _load_json_input, build_parser
 
 
 def test_load_json_input_missing_file():
@@ -47,3 +47,22 @@ def test_emit_payload_output_file_is_pretty_json(tmp_path):
 
     assert "\n" in text
     assert '  "meta"' in text
+
+
+def test_scan_wordlist_category_arg():
+    parser = build_parser()
+    args = parser.parse_args(["scan", "-t", "http://example.test", "--wordlist-category", "api"])
+    assert args.wordlist_category == "api"
+
+
+def test_enum_wordlist_category_default():
+    parser = build_parser()
+    args = parser.parse_args(["enum", "-t", "http://example.test"])
+    assert args.wordlist_category == "common"
+
+
+def test_init_command_parser_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["init"])
+    assert args.config_output == "juicechain.toml"
+    assert args.force is False

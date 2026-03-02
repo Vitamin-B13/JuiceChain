@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Callable
 
+from juicechain.core.config import ScanConfig, default_config_template
 from juicechain.core.alive import check_http_alive
 from juicechain.core.enumeration import enumerate_attack_surface
 from juicechain.core.info_gather import gather_info
@@ -58,6 +59,18 @@ def _extract_scan_document(doc: Any) -> dict[str, Any]:
             return data
 
     raise CliUsageError("input JSON is not a valid scan result")
+
+
+def _load_scan_config(args: argparse.Namespace) -> ScanConfig:
+    config_path = getattr(args, "config", None)
+    try:
+        return ScanConfig.from_cli_args(args)
+    except FileNotFoundError as e:
+        raise CliUsageError(f"config file not found: {config_path}") from e
+    except OSError as e:
+        raise CliUsageError(f"failed to read config file: {config_path} ({e})") from e
+    except (ValueError, RuntimeError) as e:
+        raise CliUsageError(f"invalid config file: {config_path} ({e})") from e
 
 
 def _extract_errors_from_obj(obj: Any) -> list[str]:
@@ -255,6 +268,13 @@ def _run_command(
 
 def _add_runtime_options(parser: argparse.ArgumentParser, *, allow_output_file: bool) -> None:
     parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default=None,
+        help="Path to TOML config file",
+    )
+    parser.add_argument(
         "--format",
         choices=("json", "table"),
         default="json",
@@ -299,24 +319,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = subparsers.add_parser("scan", help="Run pipeline: alive -> info -> enum")
     scan.add_argument("-t", "--target", required=True, help="Target URL or host[:port]")
-    scan.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout in seconds (default: 3.0)")
-    scan.add_argument("--max-pages", type=int, default=30, help="Max pages to fetch in crawler (default: 30)")
+    scan.add_argument("--timeout", type=float, default=None, help="HTTP timeout in seconds")
+    scan.add_argument("--max-pages", type=int, default=None, help="Max pages to fetch in crawler")
     scan.add_argument(
         "--max-bytes",
         type=int,
-        default=300_000,
-        help="Max bytes to read per response (default: 300000)",
+        default=None,
+        help="Max bytes to read per response",
     )
-    scan.add_argument("--follow-redirects", action="store_true", help="Follow redirects (default: false)")
-    scan.add_argument("--insecure", action="store_true", help="Disable TLS cert verification (default: false)")
-    scan.add_argument("--retries", type=int, default=0, help="Retry count on network errors (default: 0)")
+    scan.add_argument("--follow-redirects", action="store_true", default=None, help="Follow redirects")
+    scan.add_argument("--insecure", action="store_true", default=None, help="Disable TLS cert verification")
+    scan.add_argument("--retries", type=int, default=None, help="Retry count on network errors")
     scan.add_argument(
         "--rate-limit-ms",
         type=int,
-        default=0,
-        help="Min interval between requests in ms (default: 0)",
+        default=None,
+        help="Min interval between requests in ms",
     )
     scan.add_argument("--wordlist", type=str, default=None, help="Path to custom wordlist file (optional)")
+    scan.add_argument(
+        "--wordlist-category",
+        choices=("common", "api", "backup", "all"),
+        default="common",
+        help="Built-in wordlist category when --wordlist is not provided (default: common)",
+    )
     scan.add_argument("--no-spa-assets", action="store_true", help="Disable SPA asset fetching (default: false)")
     scan.add_argument("--max-spa-assets", type=int, default=6, help="Max JS assets to fetch (default: 6)")
     scan.add_argument(
@@ -328,37 +354,36 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_options(scan, allow_output_file=True)
 
     def _scan_cmd(args: argparse.Namespace) -> int:
-        verify_tls = not args.insecure
-        allow_redirects = bool(args.follow_redirects)
-
         def _runner() -> dict[str, Any]:
+            cfg = _load_scan_config(args)
             return {
                 "target": args.target,
                 "alive": check_http_alive(
                     args.target,
-                    timeout=args.timeout,
-                    verify_tls=verify_tls,
-                    allow_redirects=allow_redirects,
-                    retries=args.retries,
+                    timeout=cfg.timeout,
+                    verify_tls=cfg.verify_tls,
+                    allow_redirects=cfg.allow_redirects,
+                    retries=cfg.retries,
                 ),
                 "info": gather_info(
                     args.target,
-                    timeout=args.timeout,
-                    verify_tls=verify_tls,
-                    allow_redirects=allow_redirects,
-                    max_bytes=args.max_bytes,
-                    retries=args.retries,
+                    timeout=cfg.timeout,
+                    verify_tls=cfg.verify_tls,
+                    allow_redirects=cfg.allow_redirects,
+                    max_bytes=cfg.max_bytes,
+                    retries=cfg.retries,
                 ),
                 "enum": enumerate_attack_surface(
                     args.target,
-                    timeout=args.timeout,
-                    max_pages=args.max_pages,
-                    max_bytes=args.max_bytes,
+                    timeout=cfg.timeout,
+                    max_pages=cfg.max_pages,
+                    max_bytes=cfg.max_bytes,
                     wordlist_file=args.wordlist,
-                    allow_redirects=allow_redirects,
-                    verify_tls=verify_tls,
-                    retries=args.retries,
-                    min_interval_ms=args.rate_limit_ms,
+                    wordlist_category=args.wordlist_category,
+                    allow_redirects=cfg.allow_redirects,
+                    verify_tls=cfg.verify_tls,
+                    retries=cfg.retries,
+                    min_interval_ms=cfg.rate_limit_ms,
                     fetch_spa_assets=not args.no_spa_assets,
                     max_spa_assets=args.max_spa_assets,
                     spa_asset_max_bytes=args.spa_asset_bytes,
@@ -436,24 +461,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Attack surface enumeration (crawler + content discovery)",
     )
     enum_cmd.add_argument("-t", "--target", required=True, help="Target URL or host[:port]")
-    enum_cmd.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout in seconds (default: 3.0)")
-    enum_cmd.add_argument("--max-pages", type=int, default=30, help="Max pages to fetch in crawler (default: 30)")
+    enum_cmd.add_argument("--timeout", type=float, default=None, help="HTTP timeout in seconds")
+    enum_cmd.add_argument("--max-pages", type=int, default=None, help="Max pages to fetch in crawler")
     enum_cmd.add_argument(
         "--max-bytes",
         type=int,
-        default=300_000,
-        help="Max bytes to read per response (default: 300000)",
+        default=None,
+        help="Max bytes to read per response",
     )
-    enum_cmd.add_argument("--follow-redirects", action="store_true", help="Follow redirects (default: false)")
-    enum_cmd.add_argument("--insecure", action="store_true", help="Disable TLS cert verification (default: false)")
-    enum_cmd.add_argument("--retries", type=int, default=0, help="Retry count on network errors (default: 0)")
+    enum_cmd.add_argument("--follow-redirects", action="store_true", default=None, help="Follow redirects")
+    enum_cmd.add_argument("--insecure", action="store_true", default=None, help="Disable TLS cert verification")
+    enum_cmd.add_argument("--retries", type=int, default=None, help="Retry count on network errors")
     enum_cmd.add_argument(
         "--rate-limit-ms",
         type=int,
-        default=0,
-        help="Min interval between requests in ms (default: 0)",
+        default=None,
+        help="Min interval between requests in ms",
     )
     enum_cmd.add_argument("--wordlist", type=str, default=None, help="Path to custom wordlist file (optional)")
+    enum_cmd.add_argument(
+        "--wordlist-category",
+        choices=("common", "api", "backup", "all"),
+        default="common",
+        help="Built-in wordlist category when --wordlist is not provided (default: common)",
+    )
     enum_cmd.add_argument("--no-spa-assets", action="store_true", help="Disable SPA asset fetching (default: false)")
     enum_cmd.add_argument("--max-spa-assets", type=int, default=6, help="Max JS assets to fetch (default: 6)")
     enum_cmd.add_argument(
@@ -465,24 +496,29 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_options(enum_cmd, allow_output_file=False)
 
     def _enum_cmd(args: argparse.Namespace) -> int:
+        def _runner() -> dict[str, Any]:
+            cfg = _load_scan_config(args)
+            return enumerate_attack_surface(
+                args.target,
+                timeout=cfg.timeout,
+                max_pages=cfg.max_pages,
+                max_bytes=cfg.max_bytes,
+                wordlist_file=args.wordlist,
+                wordlist_category=args.wordlist_category,
+                allow_redirects=cfg.allow_redirects,
+                verify_tls=cfg.verify_tls,
+                retries=cfg.retries,
+                min_interval_ms=cfg.rate_limit_ms,
+                fetch_spa_assets=not args.no_spa_assets,
+                max_spa_assets=args.max_spa_assets,
+                spa_asset_max_bytes=args.spa_asset_bytes,
+            )
+
         return _run_command(
             args,
             command="enum",
             target=args.target,
-            runner=lambda: enumerate_attack_surface(
-                args.target,
-                timeout=args.timeout,
-                max_pages=args.max_pages,
-                max_bytes=args.max_bytes,
-                wordlist_file=args.wordlist,
-                allow_redirects=bool(args.follow_redirects),
-                verify_tls=not args.insecure,
-                retries=args.retries,
-                min_interval_ms=args.rate_limit_ms,
-                fetch_spa_assets=not args.no_spa_assets,
-                max_spa_assets=args.max_spa_assets,
-                spa_asset_max_bytes=args.spa_asset_bytes,
-            ),
+            runner=_runner,
         )
 
     enum_cmd.set_defaults(func=_enum_cmd)
@@ -490,43 +526,45 @@ def build_parser() -> argparse.ArgumentParser:
     vuln = subparsers.add_parser("vuln", help="Vulnerability module (week5: skeleton/dry-run)")
     vuln.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
     vuln.add_argument("--dry-run", action="store_true", help="Only derive input points and output stats (no requests)")
-    vuln.add_argument("--timeout", type=float, default=3.0, help="HTTP timeout seconds (default: 3.0)")
+    vuln.add_argument("--timeout", type=float, default=None, help="HTTP timeout seconds")
     vuln.add_argument(
         "--max-bytes",
         type=int,
-        default=200_000,
-        help="Max response bytes to read (default: 200000)",
+        default=None,
+        help="Max response bytes to read",
     )
-    vuln.add_argument("--retries", type=int, default=0, help="Retry times (default: 0)")
+    vuln.add_argument("--retries", type=int, default=None, help="Retry times")
     vuln.add_argument(
         "--rate-limit-ms",
         type=int,
-        default=0,
-        help="Min interval between requests in ms (default: 0)",
+        default=None,
+        help="Min interval between requests in ms",
     )
-    vuln.add_argument("--insecure", action="store_true", help="Disable TLS verification")
-    vuln.add_argument("--follow-redirects", action="store_true", help="Follow redirects")
-    vuln.add_argument("--dom-xss", action="store_true", help="Enable DOM-XSS verification via Playwright")
-    vuln.add_argument("--headed", action="store_true", help="Run browser in headed mode (for debugging)")
+    vuln.add_argument("--insecure", action="store_true", default=None, help="Disable TLS verification")
+    vuln.add_argument("--follow-redirects", action="store_true", default=None, help="Follow redirects")
+    vuln.add_argument("--dom-xss", action="store_true", default=None, help="Enable DOM-XSS verification via Playwright")
+    vuln.add_argument("--headed", action="store_true", default=None, help="Run browser in headed mode (for debugging)")
     _add_runtime_options(vuln, allow_output_file=True)
 
     def _vuln_cmd(args: argparse.Namespace) -> int:
         def _runner() -> dict[str, Any]:
+            cfg = _load_scan_config(args)
             raw = _load_json_input(Path(args.input))
             scan_doc = _extract_scan_document(raw)
             if args.dry_run:
-                return vuln_dry_run_report(scan_doc, version=_get_version())
+                return vuln_dry_run_report(scan_doc, version=_get_version(), config=cfg)
             return scan_vulnerabilities(
                 scan_doc,
                 version=_get_version(),
-                timeout=float(args.timeout),
-                verify_tls=not bool(args.insecure),
-                allow_redirects=bool(args.follow_redirects),
-                retries=int(args.retries),
-                min_interval_ms=int(args.rate_limit_ms),
-                max_bytes=int(args.max_bytes),
-                enable_dom_xss=bool(args.dom_xss),
+                timeout=float(cfg.timeout),
+                verify_tls=bool(cfg.verify_tls),
+                allow_redirects=bool(cfg.allow_redirects),
+                retries=int(cfg.retries),
+                min_interval_ms=int(cfg.rate_limit_ms),
+                max_bytes=int(cfg.max_bytes),
+                enable_dom_xss=bool(cfg.enable_dom_xss),
                 dom_xss_headless=not bool(args.headed),
+                config=cfg,
             )
 
         return _run_command(
@@ -537,6 +575,35 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     vuln.set_defaults(func=_vuln_cmd)
+
+    init_cmd = subparsers.add_parser("init", help="Generate a default JuiceChain config template")
+    init_cmd.add_argument(
+        "-o",
+        "--output",
+        dest="config_output",
+        type=str,
+        default="juicechain.toml",
+        help="Output config file path (default: juicechain.toml)",
+    )
+    init_cmd.add_argument("--force", action="store_true", help="Overwrite output file if it already exists")
+    _add_runtime_options(init_cmd, allow_output_file=False)
+
+    def _init_cmd(args: argparse.Namespace) -> int:
+        def _runner() -> dict[str, Any]:
+            out = Path(args.config_output)
+            if out.exists() and not args.force:
+                raise CliUsageError(f"config file already exists: {out} (use --force to overwrite)")
+            out.write_text(default_config_template(), encoding="utf-8")
+            return {"output_file": str(out), "overwritten": bool(args.force)}
+
+        return _run_command(
+            args,
+            command="init",
+            target=args.config_output,
+            runner=_runner,
+        )
+
+    init_cmd.set_defaults(func=_init_cmd)
 
     report = subparsers.add_parser("report", help="Generate a Markdown report from scan JSON")
     report.add_argument("-i", "--input", required=True, help="Input JSON file (from juicechain scan)")
