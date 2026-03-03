@@ -132,3 +132,11 @@ def test_build_scan_report_severity_summary_counts():
 
     report = build_scan_report(scan, vuln)
     assert "结果摘要：2 个高危 / 1 个中危 / 0 个低危" in report
+
+
+def test_build_scan_report_recommends_dom_xss_for_spa_without_findings():
+    scan = _sample_scan_data()
+    vuln = {"meta": {"command": "vuln"}, "data": {"findings": []}}
+
+    report = build_scan_report(scan, vuln)
+    assert "--dom-xss" in report

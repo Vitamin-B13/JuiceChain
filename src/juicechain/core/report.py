@@ -57,10 +57,13 @@ def build_scan_report(scan_data: Mapping[str, Any], vuln_data: Mapping[str, Any]
 
     pages = _as_list(crawler.get("pages_fetched"))
     routes = _as_str_list(spa.get("routes_from_assets"))
+    route_paths = _as_str_list(spa.get("route_paths_from_assets"))
+    hash_routes = _as_str_list(crawler.get("hash_routes"))
     api_candidates = _as_str_list(spa.get("api_candidates_from_assets"))
     server_endpoints = _as_list(content_discovery.get("findings_server_endpoints"))
     spa_routes = _as_list(content_discovery.get("findings_spa_routes"))
     fallback_noise = _as_list(content_discovery.get("findings_fallback_noise"))
+    has_spa_signals = bool(routes or route_paths or hash_routes)
 
     lines: list[str] = []
     lines.append("# JuiceChain 渗透测试报告")
@@ -150,6 +153,11 @@ def build_scan_report(scan_data: Mapping[str, Any], vuln_data: Mapping[str, Any]
         lines.append("")
 
     lines.append("## 5. 建议")
+    if has_spa_signals and not findings:
+        lines.append(
+            "- SPA indicators detected with no vulnerability findings; "
+            "consider enabling --dom-xss for browser-side checks."
+        )
     for rec in _build_recommendations(findings):
         lines.append(f"- {rec}")
 

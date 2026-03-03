@@ -2,7 +2,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import juicechain.cli.main as cli
 
+from juicechain.core.config import ScanConfig
 from juicechain.cli.main import CliUsageError, _emit_payload, _extract_scan_document, _load_json_input, build_parser
 
 
@@ -107,3 +109,65 @@ def test_pipeline_command_parser_defaults():
     assert args.format == "markdown"
     assert args.wordlist_category == "common"
     assert args.report_output is None
+
+
+def test_vuln_output_adds_spa_dom_xss_warning(monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["vuln", "-i", "scan.json", "--dry-run"])
+
+    scan_doc = {
+        "target": "http://example.test",
+        "alive": {},
+        "info": {},
+        "enum": {"crawler": {"spa": {"routes_from_assets": ["/#/search"]}}},
+    }
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "_load_scan_config", lambda _args: ScanConfig(enable_dom_xss=False))
+    monkeypatch.setattr(cli, "_load_json_input", lambda _path: {"meta": {"command": "scan"}, "data": scan_doc})
+    monkeypatch.setattr(cli, "vuln_dry_run_report", lambda *args, **kwargs: {"findings": [], "errors": []})
+
+    def _fake_run_command(_args, **kwargs):
+        captured["data"] = kwargs["runner"]()
+        return 0
+
+    monkeypatch.setattr(cli, "_run_command", _fake_run_command)
+
+    rc = args.func(args)
+    assert rc == 0
+    data = captured["data"]
+    assert isinstance(data, dict)
+    assert "warnings" in data
+    assert any("--dom-xss" in str(item) for item in data["warnings"])
+
+
+def test_pipeline_output_adds_spa_dom_xss_warning(monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["pipeline", "-t", "http://example.test", "--dry-run"])
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "_load_scan_config", lambda _args: ScanConfig(enable_dom_xss=False))
+    monkeypatch.setattr(cli, "_get_version", lambda: "test")
+    monkeypatch.setattr(cli, "check_http_alive", lambda *args, **kwargs: {"alive": True})
+    monkeypatch.setattr(cli, "gather_info", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        cli,
+        "enumerate_attack_surface",
+        lambda *args, **kwargs: {"crawler": {"spa": {"routes_from_assets": ["/#/login"]}}, "errors": []},
+    )
+    monkeypatch.setattr(cli, "vuln_dry_run_report", lambda *args, **kwargs: {"findings": [], "errors": []})
+    monkeypatch.setattr(cli, "build_scan_report", lambda *args, **kwargs: "# report")
+
+    def _fake_run_command(_args, **kwargs):
+        captured["data"] = kwargs["runner"]()
+        return 0
+
+    monkeypatch.setattr(cli, "_run_command", _fake_run_command)
+
+    rc = args.func(args)
+    assert rc == 0
+    data = captured["data"]
+    assert isinstance(data, dict)
+    assert "warnings" in data
+    assert any("--dom-xss" in str(item) for item in data["warnings"])

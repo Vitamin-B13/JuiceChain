@@ -140,6 +140,23 @@ def _as_list(value: Any) -> list[Any]:
     return []
 
 
+def _spa_dom_xss_warnings(scan_doc: dict[str, Any], *, dom_xss_enabled: bool) -> list[str]:
+    if dom_xss_enabled:
+        return []
+
+    enum_doc = _as_dict(scan_doc.get("enum"))
+    crawler = _as_dict(enum_doc.get("crawler"))
+    spa = _as_dict(crawler.get("spa"))
+    routes = _as_list(spa.get("routes_from_assets"))
+    if not routes:
+        return []
+
+    return [
+        "SPA routes detected from assets while DOM-XSS checks are disabled; "
+        "consider enabling --dom-xss."
+    ]
+
+
 def _configure_runtime_logging(args: argparse.Namespace) -> None:
     enable_file = not bool(getattr(args, "no_log_file", False))
     file_path = configure_logging(
@@ -548,21 +565,33 @@ def build_parser() -> argparse.ArgumentParser:
             cfg = _load_scan_config(args)
             raw = _load_json_input(Path(args.input))
             scan_doc = _extract_scan_document(raw)
+            dom_xss_enabled = bool(cfg.enable_dom_xss)
             if args.dry_run:
-                return vuln_dry_run_report(scan_doc, version=_get_version(), config=cfg)
-            return scan_vulnerabilities(
-                scan_doc,
-                version=_get_version(),
-                timeout=float(cfg.timeout),
-                verify_tls=bool(cfg.verify_tls),
-                allow_redirects=bool(cfg.allow_redirects),
-                retries=int(cfg.retries),
-                min_interval_ms=int(cfg.rate_limit_ms),
-                max_bytes=int(cfg.max_bytes),
-                enable_dom_xss=bool(cfg.enable_dom_xss),
-                dom_xss_headless=not bool(args.headed),
-                config=cfg,
-            )
+                out = vuln_dry_run_report(scan_doc, version=_get_version(), config=cfg)
+            else:
+                out = scan_vulnerabilities(
+                    scan_doc,
+                    version=_get_version(),
+                    timeout=float(cfg.timeout),
+                    verify_tls=bool(cfg.verify_tls),
+                    allow_redirects=bool(cfg.allow_redirects),
+                    retries=int(cfg.retries),
+                    min_interval_ms=int(cfg.rate_limit_ms),
+                    max_bytes=int(cfg.max_bytes),
+                    enable_dom_xss=dom_xss_enabled,
+                    dom_xss_headless=not bool(args.headed),
+                    config=cfg,
+                )
+
+            warnings = _spa_dom_xss_warnings(scan_doc, dom_xss_enabled=dom_xss_enabled)
+            if warnings:
+                existing = out.get("warnings")
+                merged = []
+                if isinstance(existing, list):
+                    merged.extend(existing)
+                merged.extend(warnings)
+                out["warnings"] = normalize_errors(merged)
+            return out
 
         return _run_command(
             args,
@@ -738,6 +767,7 @@ def build_parser() -> argparse.ArgumentParser:
         def _runner() -> dict[str, Any]:
             cfg = _load_scan_config(args)
             cli_version = _get_version()
+            dom_xss_enabled = bool(cfg.enable_dom_xss)
 
             scan_doc = {
                 "target": args.target,
@@ -787,7 +817,7 @@ def build_parser() -> argparse.ArgumentParser:
                     retries=int(cfg.retries),
                     min_interval_ms=int(cfg.rate_limit_ms),
                     max_bytes=int(cfg.max_bytes),
-                    enable_dom_xss=bool(cfg.enable_dom_xss),
+                    enable_dom_xss=dom_xss_enabled,
                     dom_xss_headless=not bool(args.headed),
                     config=cfg,
                 )
@@ -821,8 +851,10 @@ def build_parser() -> argparse.ArgumentParser:
             all_errors = normalize_errors(scan_errors + vuln_errors)
             alive_info = _as_dict(scan_doc.get("alive"))
             findings = _as_list(vuln_doc.get("findings"))
+            warnings = _spa_dom_xss_warnings(scan_doc, dom_xss_enabled=dom_xss_enabled)
 
             return {
+                **({"warnings": warnings} if warnings else {}),
                 "ok": bool(alive_info.get("alive")) and len(all_errors) == 0,
                 "errors": all_errors,
                 "target": args.target,
