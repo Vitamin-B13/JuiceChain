@@ -22,6 +22,7 @@ rate_limit_ms = 120
 enable_dom_xss = true
 enable_xss = false
 enable_sqli_error = true
+enable_auth_bypass = false
 enable_sqli_boolean = false
 login_keywords = ["login", "session"]
 register_keywords = ["register", "signup", "join"]
@@ -46,6 +47,7 @@ param = "q"
     assert cfg.enable_dom_xss is True
     assert cfg.enable_xss is False
     assert cfg.enable_sqli_error is True
+    assert cfg.enable_auth_bypass is False
     assert cfg.enable_sqli_boolean is False
     assert "session" in cfg.login_keywords
     assert "join" in cfg.register_keywords

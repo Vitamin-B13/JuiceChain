@@ -89,6 +89,7 @@ class ScanConfig:
     # Vulnerability checks
     enable_xss: bool = True
     enable_sqli_error: bool = True
+    enable_auth_bypass: bool = True
     enable_sqli_boolean: bool = True
     enable_dom_xss: bool = False
 
@@ -149,6 +150,8 @@ class ScanConfig:
             cfg.enable_xss = _as_bool(vuln["enable_xss"], key="vuln.enable_xss")
         if "enable_sqli_error" in vuln:
             cfg.enable_sqli_error = _as_bool(vuln["enable_sqli_error"], key="vuln.enable_sqli_error")
+        if "enable_auth_bypass" in vuln:
+            cfg.enable_auth_bypass = _as_bool(vuln["enable_auth_bypass"], key="vuln.enable_auth_bypass")
         if "enable_sqli_boolean" in vuln:
             cfg.enable_sqli_boolean = _as_bool(vuln["enable_sqli_boolean"], key="vuln.enable_sqli_boolean")
         if "enable_dom_xss" in vuln:
@@ -246,6 +249,7 @@ rate_limit_ms = 0
 [vuln]
 enable_xss = true
 enable_sqli_error = true
+enable_auth_bypass = true
 enable_sqli_boolean = true
 enable_dom_xss = false
 login_keywords = ["login", "signin", "auth"]
