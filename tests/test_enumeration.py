@@ -25,6 +25,22 @@ const api = '/rest/user/login';
 const other = '/assets/public/logo.png';
 """
 
+API_INDEX = b"""
+<html>
+  <head>
+    <title>API Probe</title>
+    <script src="/app.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
+"""
+
+API_APP_JS = b"""
+const itemsApi = '/api/items';
+"""
+
 ROBOTS = b"User-agent: *\nDisallow: /secret\n"
 
 
@@ -58,6 +74,46 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html")
         self.end_headers()
         self.wfile.write(INDEX)
+
+    def log_message(self, format, *args):
+        return
+
+
+class ApiProbeHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/app.js":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript")
+            self.end_headers()
+            self.wfile.write(API_APP_JS)
+            return
+
+        if self.path.startswith("/api/items/search"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"items":[{"id":1}],"total":1}')
+            return
+
+        if self.path.startswith("/api/items"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"items":[]}')
+            return
+
+        if self.path == "/" or self.path == "":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(API_INDEX)
+            return
+
+        # SPA fallback response (noise for path probing).
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        self.wfile.write(API_INDEX)
 
     def log_message(self, format, *args):
         return
@@ -118,5 +174,28 @@ def test_enumerate_attack_surface_ok():
         cd = res["content_discovery"]
         assert cd["findings_server_endpoints"]  # robots
         assert cd["findings_spa_routes"]        # login
+    finally:
+        server.shutdown()
+
+
+def test_crawl_site_api_subpath_probe_discovers_search_endpoint():
+    server = HTTPServer(("127.0.0.1", 0), ApiProbeHandler)
+    t = threading.Thread(target=_run_server, args=(server,), daemon=True)
+    t.start()
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        res = crawl_site(
+            base,
+            timeout=2.0,
+            max_pages=5,
+            fetch_spa_assets=True,
+            max_spa_assets=3,
+            enable_api_subpath_probe=True,
+            max_api_subpath_probes=50,
+        )
+        api = set((res.get("spa") or {}).get("api_candidates_from_assets") or [])
+        assert "/api/items" in api
+        assert "/api/items/search" in api
     finally:
         server.shutdown()

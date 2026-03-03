@@ -55,10 +55,33 @@ def test_scan_wordlist_category_arg():
     assert args.wordlist_category == "api"
 
 
+def test_scan_api_subpath_probe_args():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "scan",
+            "-t",
+            "http://example.test",
+            "--no-api-subpath-probe",
+            "--max-api-subpath-probes",
+            "12",
+        ]
+    )
+    assert args.no_api_subpath_probe is True
+    assert args.max_api_subpath_probes == 12
+
+
 def test_enum_wordlist_category_default():
     parser = build_parser()
     args = parser.parse_args(["enum", "-t", "http://example.test"])
     assert args.wordlist_category == "common"
+
+
+def test_enum_api_subpath_probe_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["enum", "-t", "http://example.test"])
+    assert args.no_api_subpath_probe is False
+    assert args.max_api_subpath_probes == 50
 
 
 def test_init_command_parser_defaults():

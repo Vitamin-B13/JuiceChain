@@ -64,6 +64,20 @@ _API_CANDIDATE_RE = re.compile(
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 _WORDLIST_CATEGORIES: tuple[str, ...] = ("common", "api", "backup")
+_API_SUBPATH_PROBES: tuple[str, ...] = (
+    "search",
+    "list",
+    "query",
+    "find",
+    "export",
+    "download",
+    "detail",
+    "all",
+    "count",
+    "check",
+    "verify",
+    "status",
+)
 
 
 def _canonicalize_url(url: str) -> str:
@@ -325,6 +339,19 @@ def _scan_api_candidates_from_js(text: str) -> set[str]:
     return out
 
 
+def _normalize_api_candidate_path(path: str) -> str | None:
+    raw = (path or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    p = (parsed.path or "").strip()
+    if not p.startswith("/"):
+        return None
+    if p != "/":
+        p = p.rstrip("/")
+    return p if p and p != "/" else None
+
+
 def _extract_asset_urls(base: str, html: bytes) -> list[str]:
     if not html:
         return []
@@ -393,6 +420,82 @@ def detect_spa_fallback(base: str, client: HttpClient, *, timeout: float) -> Fal
     return FallbackSignature(url=url, status_code=res.status_code, sig=sig, title=title, content_type=ct)
 
 
+def probe_api_subpaths(
+    base: str,
+    api_candidates: set[str],
+    client: HttpClient,
+    *,
+    timeout: float = 3.0,
+    max_bytes: int = 200_000,
+    fallback_signature: str = "",
+    max_probes: int = 50,
+) -> set[str]:
+    """Probe API subpaths derived from base API candidates.
+
+    Args:
+        base: Target base URL.
+        api_candidates: Existing API path candidates.
+        client: Shared HTTP client.
+        timeout: Request timeout in seconds.
+        max_bytes: Maximum bytes read per probe response.
+        fallback_signature: Known SPA fallback body signature for noise filtering.
+        max_probes: Maximum probe requests before stopping.
+
+    Returns:
+        Newly discovered API subpaths that look like live JSON endpoints.
+    """
+    out: set[str] = set()
+    probe_budget = max(0, int(max_probes))
+    if probe_budget <= 0:
+        return out
+
+    fallback_sig = (fallback_signature or "").strip()
+    probe_count = 0
+
+    normalized_base_paths: set[str] = set()
+    for candidate in api_candidates:
+        normalized = _normalize_api_candidate_path(candidate)
+        if normalized:
+            normalized_base_paths.add(normalized)
+
+    for base_path in sorted(normalized_base_paths):
+        for subpath in _API_SUBPATH_PROBES:
+            if probe_count >= probe_budget:
+                return out
+
+            probe_path = f"{base_path.rstrip('/')}/{subpath}"
+            if probe_path in normalized_base_paths or probe_path in out:
+                continue
+
+            probe_count += 1
+            url = join_url(base, probe_path)
+            res = client.request(
+                "GET",
+                url,
+                timeout=timeout,
+                max_bytes=max_bytes,
+                params={"q": "test"},
+            )
+            if not res.ok or res.status_code != 200:
+                continue
+
+            ct = (
+                res.headers.get("Content-Type")
+                or res.headers.get("content-type")
+                or ""
+            ).lower()
+            if "json" not in ct:
+                continue
+
+            sig = body_signature(res.body)
+            if fallback_sig and sig == fallback_sig:
+                continue
+
+            out.add(probe_path)
+
+    return out
+
+
 def crawl_site(
     base: str,
     *,
@@ -407,6 +510,8 @@ def crawl_site(
     fetch_spa_assets: bool = True,
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
+    enable_api_subpath_probe: bool = True,
+    max_api_subpath_probes: int = 50,
 ) -> dict[str, Any]:
     """Crawl in-scope pages and extract attack-surface signals.
 
@@ -423,6 +528,8 @@ def crawl_site(
         fetch_spa_assets: Whether JS/CSS asset scanning is enabled.
         max_spa_assets: Maximum number of assets fetched for SPA parsing.
         spa_asset_max_bytes: Maximum bytes read per SPA asset.
+        enable_api_subpath_probe: Whether API subpath probing is enabled.
+        max_api_subpath_probes: Maximum API subpath probes.
 
     Returns:
         A crawler report with discovered pages, URLs, forms, params, SPA routes,
@@ -575,6 +682,24 @@ def crawl_site(
 
                 # API candidates
                 api_candidates |= _scan_api_candidates_from_js(js_text)
+
+        if fetch_spa_assets and enable_api_subpath_probe and api_candidates:
+            fallback_signature = ""
+            fallback = detect_spa_fallback(base, client, timeout=timeout)
+            if fallback and fallback.sig:
+                fallback_signature = fallback.sig
+
+            discovered_api_subpaths = probe_api_subpaths(
+                base,
+                api_candidates,
+                client,
+                timeout=timeout,
+                max_bytes=max_bytes,
+                fallback_signature=fallback_signature,
+                max_probes=max_api_subpath_probes,
+            )
+            if discovered_api_subpaths:
+                api_candidates |= discovered_api_subpaths
 
         # Normalize route strings to "#/xxx"
         def _norm_route(r: str) -> str:
@@ -865,6 +990,8 @@ def enumerate_attack_surface(
     fetch_spa_assets: bool = True,
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
+    enable_api_subpath_probe: bool = True,
+    max_api_subpath_probes: int = 50,
 ) -> dict[str, Any]:
     """Run full attack-surface enumeration for a target.
 
@@ -883,6 +1010,8 @@ def enumerate_attack_surface(
         fetch_spa_assets: Whether SPA asset scanning is enabled.
         max_spa_assets: Maximum number of assets fetched for SPA parsing.
         spa_asset_max_bytes: Maximum bytes read per SPA asset.
+        enable_api_subpath_probe: Whether API subpath probing is enabled.
+        max_api_subpath_probes: Maximum API subpath probes.
 
     Returns:
         Combined crawler and content discovery report with aggregated errors.
@@ -910,6 +1039,8 @@ def enumerate_attack_surface(
         fetch_spa_assets=fetch_spa_assets,
         max_spa_assets=max_spa_assets,
         spa_asset_max_bytes=spa_asset_max_bytes,
+        enable_api_subpath_probe=enable_api_subpath_probe,
+        max_api_subpath_probes=max_api_subpath_probes,
     )
     out["crawler"] = crawler
 

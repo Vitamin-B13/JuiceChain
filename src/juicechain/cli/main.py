@@ -322,6 +322,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=450_000,
         help="Max bytes per JS asset fetch (default: 450000)",
     )
+    scan.add_argument(
+        "--no-api-subpath-probe",
+        action="store_true",
+        help="Disable API subpath probing (default: false)",
+    )
+    scan.add_argument(
+        "--max-api-subpath-probes",
+        type=int,
+        default=50,
+        help="Max API subpath probes (default: 50)",
+    )
     _add_runtime_options(scan, allow_output_file=True)
 
     def _scan_cmd(args: argparse.Namespace) -> int:
@@ -358,6 +369,8 @@ def build_parser() -> argparse.ArgumentParser:
                     fetch_spa_assets=not args.no_spa_assets,
                     max_spa_assets=args.max_spa_assets,
                     spa_asset_max_bytes=args.spa_asset_bytes,
+                    enable_api_subpath_probe=not args.no_api_subpath_probe,
+                    max_api_subpath_probes=args.max_api_subpath_probes,
                 ),
             }
 
@@ -464,6 +477,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=450_000,
         help="Max bytes per JS asset fetch (default: 450000)",
     )
+    enum_cmd.add_argument(
+        "--no-api-subpath-probe",
+        action="store_true",
+        help="Disable API subpath probing (default: false)",
+    )
+    enum_cmd.add_argument(
+        "--max-api-subpath-probes",
+        type=int,
+        default=50,
+        help="Max API subpath probes (default: 50)",
+    )
     _add_runtime_options(enum_cmd, allow_output_file=False)
 
     def _enum_cmd(args: argparse.Namespace) -> int:
@@ -483,6 +507,8 @@ def build_parser() -> argparse.ArgumentParser:
                 fetch_spa_assets=not args.no_spa_assets,
                 max_spa_assets=args.max_spa_assets,
                 spa_asset_max_bytes=args.spa_asset_bytes,
+                enable_api_subpath_probe=not args.no_api_subpath_probe,
+                max_api_subpath_probes=args.max_api_subpath_probes,
             )
 
         return _run_command(
@@ -674,6 +700,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=450_000,
         help="Max bytes per JS asset fetch (default: 450000)",
     )
+    pipeline.add_argument(
+        "--no-api-subpath-probe",
+        action="store_true",
+        help="Disable API subpath probing (default: false)",
+    )
+    pipeline.add_argument(
+        "--max-api-subpath-probes",
+        type=int,
+        default=50,
+        help="Max API subpath probes (default: 50)",
+    )
     pipeline.add_argument("--dom-xss", action="store_true", default=None, help="Enable DOM-XSS verification")
     pipeline.add_argument("--headed", action="store_true", default=None, help="Run browser in headed mode")
     pipeline.add_argument("--dry-run", action="store_true", help="Skip active vuln probes and only derive points")
@@ -733,6 +770,8 @@ def build_parser() -> argparse.ArgumentParser:
                     fetch_spa_assets=not args.no_spa_assets,
                     max_spa_assets=args.max_spa_assets,
                     spa_asset_max_bytes=args.spa_asset_bytes,
+                    enable_api_subpath_probe=not args.no_api_subpath_probe,
+                    max_api_subpath_probes=args.max_api_subpath_probes,
                 ),
             }
 
