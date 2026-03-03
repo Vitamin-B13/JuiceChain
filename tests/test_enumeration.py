@@ -37,9 +37,10 @@ API_INDEX = b"""
 </html>
 """
 
-API_APP_JS = b"""
-const itemsApi = '/api/items';
-"""
+_HEAVY_API_CANDIDATES = [f"/rest/a{i:02d}/apply" for i in range(1, 42)] + ["/rest/products"]
+API_APP_JS = "\n".join(
+    f"const api{i} = '{path}';" for i, path in enumerate(_HEAVY_API_CANDIDATES, start=1)
+).encode("utf-8")
 
 ROBOTS = b"User-agent: *\nDisallow: /secret\n"
 
@@ -88,14 +89,14 @@ class ApiProbeHandler(BaseHTTPRequestHandler):
             self.wfile.write(API_APP_JS)
             return
 
-        if self.path.startswith("/api/items/search"):
+        if self.path.startswith("/rest/products/search"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"items":[{"id":1}],"total":1}')
             return
 
-        if self.path.startswith("/api/items"):
+        if self.path.startswith("/rest/products"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -192,10 +193,10 @@ def test_crawl_site_api_subpath_probe_discovers_search_endpoint():
             fetch_spa_assets=True,
             max_spa_assets=3,
             enable_api_subpath_probe=True,
-            max_api_subpath_probes=50,
         )
         api = set((res.get("spa") or {}).get("api_candidates_from_assets") or [])
-        assert "/api/items" in api
-        assert "/api/items/search" in api
+        assert "/rest/a01/apply" in api
+        assert "/rest/products" in api
+        assert "/rest/products/search" in api
     finally:
         server.shutdown()

@@ -20,6 +20,7 @@ _RECOMMENDATION_MAP = {
     "CSRF": "对敏感操作启用 CSRF Token 并校验 Origin/Referer，Cookie 设置 SameSite。",
     "SSRF": "对目标地址做白名单校验，禁止访问内网/元数据地址并限制协议。",
     "RCE": "移除命令拼接，改用安全 API，最小化运行权限并隔离执行环境。",
+    "AUTH": "对登录接口使用参数化查询，禁止将用户输入拼接到认证 SQL 中；启用多因素认证和账户锁定策略。",
 }
 
 
@@ -74,7 +75,7 @@ def build_scan_report(scan_data: Mapping[str, Any], vuln_data: Mapping[str, Any]
     lines.append(f"- 工具版本：{tool_version}")
     lines.append(
         "- 结果摘要："
-        f"{severity['high']} 个高危 / {severity['medium']} 个中危 / {severity['low']} 个低危"
+        f"{severity['critical']} 个严重 / {severity['high']} 个高危 / {severity['medium']} 个中危 / {severity['low']} 个低危"
     )
     if vuln_data is None:
         lines.append("- 漏洞数据：未提供（仅展示 scan 阶段结果）")
@@ -264,7 +265,7 @@ def _extract_vuln_context(vuln_data: Mapping[str, Any] | None) -> dict[str, Any]
 
 
 def _severity_counts(findings: list[Any]) -> dict[str, int]:
-    out = {"high": 0, "medium": 0, "low": 0}
+    out = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for finding in findings:
         if not isinstance(finding, Mapping):
             continue

@@ -2,12 +2,12 @@
 
 ## 1. 概要
 - 目标：http://192.168.204.24:3000
-- 扫描时间：2026-03-03 03:45:45 UTC
+- 扫描时间：2026-03-03 07:39:49 UTC
 - 工具版本：1.0.0
-- 结果摘要：1 个高危 / 0 个中危 / 0 个低危
+- 结果摘要：1 个严重 / 1 个高危 / 0 个中危 / 0 个低危
 
 ## 2. 目标信息
-- 存活状态：True，响应时间：35 ms
+- 存活状态：True，响应时间：25 ms
 - 技术指纹：服务器=unknown，框架=unknown，hints=[]
 - 安全头审计：缺失=['Strict-Transport-Security', 'Content-Security-Policy', 'Referrer-Policy', 'Permissions-Policy']；已存在={'X-Frame-Options': 'SAMEORIGIN', 'X-Content-Type-Options': 'nosniff'}；过时头={'Feature-Policy': "payment 'self'"}
 - 首页：http://192.168.204.24:3000/ (状态码=200)
@@ -112,4 +112,5 @@
 | high | SQLI_ERROR | /rest/user/login | email | ' | possible SQL error keyword in response: ...... | 500 |
 
 ## 5. 建议
+- 对登录接口使用参数化查询，禁止将用户输入拼接到认证 SQL 中；启用多因素认证和账户锁定策略。
 - 所有数据库访问使用参数化查询或 ORM 绑定变量，禁止字符串拼接 SQL。

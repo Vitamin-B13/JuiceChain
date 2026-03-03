@@ -428,7 +428,7 @@ def probe_api_subpaths(
     timeout: float = 3.0,
     max_bytes: int = 200_000,
     fallback_signature: str = "",
-    max_probes: int = 50,
+    max_probes: int = 200,
 ) -> set[str]:
     """Probe API subpaths derived from base API candidates.
 
@@ -458,7 +458,20 @@ def probe_api_subpaths(
         if normalized:
             normalized_base_paths.add(normalized)
 
-    for base_path in sorted(normalized_base_paths):
+    sorted_paths = sorted(normalized_base_paths, key=lambda p: (p.count("/"), p))
+
+    # Prefer root-level candidates and skip probing paths that are already
+    # children of another candidate path.
+    root_candidates: list[str] = []
+    for p in sorted_paths:
+        is_child = any(
+            p.startswith(parent.rstrip("/") + "/")
+            for parent in root_candidates
+        )
+        if not is_child:
+            root_candidates.append(p)
+
+    for base_path in root_candidates:
         for subpath in _API_SUBPATH_PROBES:
             if probe_count >= probe_budget:
                 return out
@@ -511,7 +524,7 @@ def crawl_site(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
     enable_api_subpath_probe: bool = True,
-    max_api_subpath_probes: int = 50,
+    max_api_subpath_probes: int = 200,
 ) -> dict[str, Any]:
     """Crawl in-scope pages and extract attack-surface signals.
 
@@ -991,7 +1004,7 @@ def enumerate_attack_surface(
     max_spa_assets: int = 6,
     spa_asset_max_bytes: int = 450_000,
     enable_api_subpath_probe: bool = True,
-    max_api_subpath_probes: int = 50,
+    max_api_subpath_probes: int = 200,
 ) -> dict[str, Any]:
     """Run full attack-surface enumeration for a target.
 

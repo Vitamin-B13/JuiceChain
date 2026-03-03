@@ -347,8 +347,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--max-api-subpath-probes",
         type=int,
-        default=50,
-        help="Max API subpath probes (default: 50)",
+        default=200,
+        help="Max API subpath probes (default: 200)",
     )
     _add_runtime_options(scan, allow_output_file=True)
 
@@ -502,8 +502,8 @@ def build_parser() -> argparse.ArgumentParser:
     enum_cmd.add_argument(
         "--max-api-subpath-probes",
         type=int,
-        default=50,
-        help="Max API subpath probes (default: 50)",
+        default=200,
+        help="Max API subpath probes (default: 200)",
     )
     _add_runtime_options(enum_cmd, allow_output_file=False)
 
@@ -737,8 +737,8 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline.add_argument(
         "--max-api-subpath-probes",
         type=int,
-        default=50,
-        help="Max API subpath probes (default: 50)",
+        default=200,
+        help="Max API subpath probes (default: 200)",
     )
     pipeline.add_argument("--dom-xss", action="store_true", default=None, help="Enable DOM-XSS verification")
     pipeline.add_argument("--headed", action="store_true", default=None, help="Run browser in headed mode")

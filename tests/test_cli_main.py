@@ -83,7 +83,7 @@ def test_enum_api_subpath_probe_defaults():
     parser = build_parser()
     args = parser.parse_args(["enum", "-t", "http://example.test"])
     assert args.no_api_subpath_probe is False
-    assert args.max_api_subpath_probes == 50
+    assert args.max_api_subpath_probes == 200
 
 
 def test_init_command_parser_defaults():
@@ -108,6 +108,7 @@ def test_pipeline_command_parser_defaults():
     args = parser.parse_args(["pipeline", "-t", "http://example.test"])
     assert args.format == "markdown"
     assert args.wordlist_category == "common"
+    assert args.max_api_subpath_probes == 200
     assert args.report_output is None
 
 
