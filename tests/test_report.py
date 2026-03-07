@@ -54,11 +54,11 @@ def _sample_scan_data() -> dict:
 def test_build_scan_report_with_scan_only():
     report = build_scan_report(_sample_scan_data())
 
-    assert "# JuiceChain 渗透测试报告" in report
-    assert "## 1. 概要" in report
+    assert "# JuiceChain 安全测试报告" in report
+    assert "## 1. 执行概览" in report
     assert "漏洞数据：未提供（仅展示 scan 阶段结果）" in report
-    assert "发现页面数量：" in report
-    assert "## 4. 漏洞发现" not in report
+    assert "### 2.2 攻击面统计" in report
+    assert "## 4. 漏洞详情" not in report
 
 
 def test_build_scan_report_with_scan_and_vuln():
@@ -106,9 +106,10 @@ def test_build_scan_report_with_scan_and_vuln():
 
     report = build_scan_report(scan, vuln)
 
-    assert "## 4. 漏洞发现" in report
-    assert "| 严重程度 | 类型 | 路径 | 参数 | Payload | 证据 | 响应状态码 |" in report
-    assert "结果摘要：0 个严重 / 1 个高危 / 1 个中危 / 1 个低危" in report
+    assert "## 3. 漏洞概览" in report
+    assert "| 严重级别 | 数量 |" in report
+    assert "漏洞统计：严重 0 | 高危 1 | 中危 1 | 低危 1 | 信息 0 | 总计 3" in report
+    assert "## 4. 漏洞详情" in report
 
     high_pos = report.find("SQLI_ERROR")
     medium_pos = report.find("XSS_DOM")
@@ -131,7 +132,7 @@ def test_build_scan_report_severity_summary_counts():
     }
 
     report = build_scan_report(scan, vuln)
-    assert "结果摘要：0 个严重 / 2 个高危 / 1 个中危 / 0 个低危" in report
+    assert "漏洞统计：严重 0 | 高危 2 | 中危 1 | 低危 0 | 信息 0 | 总计 3" in report
 
 
 def test_build_scan_report_recommends_dom_xss_for_spa_without_findings():

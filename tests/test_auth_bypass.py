@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from juicechain.core.http_client import HttpResponse
-from juicechain.core.vulnerability import InputPoint, check_auth_bypass
+from juicechain.core.input_point import InputPoint
+from juicechain.core.vulnerability import check_auth_bypass
 
 
 class FakeLoginClient:
@@ -9,7 +10,6 @@ class FakeLoginClient:
         json_data = kwargs.get("json_data") or {}
         email = str(json_data.get("email", ""))
 
-        # baseline: benign/non-existent email -> 401
         if "nonexist" in email or "jctest" in email:
             return HttpResponse(
                 ok=True,
@@ -21,7 +21,6 @@ class FakeLoginClient:
                 error=None,
             )
 
-        # bypass payload -> 200 + token
         if "OR 1=1" in email or "' OR" in email:
             return HttpResponse(
                 ok=True,
@@ -49,8 +48,8 @@ class FakeLoginClient:
 
 def test_check_auth_bypass_returns_finding_for_login_json():
     pts = [
-        InputPoint(method="POST", path="/rest/user/login", location="json", param="email"),
-        InputPoint(method="POST", path="/rest/user/login", location="json", param="password"),
+        InputPoint(method="POST", path="/rest/user/login", location="body_json", param="email"),
+        InputPoint(method="POST", path="/rest/user/login", location="body_json", param="password"),
     ]
     group = {("POST", "/rest/user/login"): pts}
 
@@ -69,8 +68,8 @@ def test_check_auth_bypass_returns_finding_for_login_json():
 
 def test_check_auth_bypass_returns_none_for_non_login_path():
     pts = [
-        InputPoint(method="POST", path="/rest/user/profile", location="json", param="email"),
-        InputPoint(method="POST", path="/rest/user/profile", location="json", param="password"),
+        InputPoint(method="POST", path="/rest/user/profile", location="body_json", param="email"),
+        InputPoint(method="POST", path="/rest/user/profile", location="body_json", param="password"),
     ]
     group = {("POST", "/rest/user/profile"): pts}
 

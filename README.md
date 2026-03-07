@@ -102,6 +102,24 @@ juicechain report -i scan.json --vuln vuln.json --format html -o report.html
 juicechain pipeline -t http://127.0.0.1:3000 --format markdown -o report.md
 ```
 
+## Vulnerability Plugins
+
+`vuln` 模块已改为插件架构，运行时会自动发现并加载 `src/juicechain/plugins/` 下的插件（跳过 `base.py`、`loader.py`）。
+
+- 内置插件：`XSS_REFLECTED`、`SQLI_ERROR`、`SQLI_BOOLEAN`、`AUTH_BYPASS`、`SQLI_TIME`、`OPEN_REDIRECT`、`PATH_TRAVERSAL`
+- `DOM-XSS` 仍位于 `core/dom_xss.py`，仅在 `--dom-xss` / `enable_dom_xss=true` 时启用
+- 插件按 `supported_locations` 过滤输入点，支持位置：`query`、`body_form`、`body_json`、`header`、`cookie`、`path_segment`
+- 目前会为每个发现的 endpoint 额外生成 Header 注入点：`X-Forwarded-For`、`X-Forwarded-Host`、`Referer`、`User-Agent`
+
+### Add a New Vulnerability Plugin
+
+新增漏洞类型时不需要修改扫描主流程：
+
+1. 在 `src/juicechain/plugins/` 新建一个 `.py` 文件
+2. 定义 `class Plugin(VulnPlugin)` 并实现 `check(...) -> Finding | None`
+3. 设置 `name`、`severity`（按需覆盖 `supported_locations`）
+
+下次执行 `juicechain vuln ...` 时会自动加载新插件。
 ## Commands
 
 - `alive`: 连通性检查（HEAD/GET 回退）
@@ -121,6 +139,8 @@ juicechain pipeline -t http://127.0.0.1:3000 --format markdown -o report.md
 
 ## Project Layout
 
+- `src/juicechain/plugins/`: 漏洞检测插件（自动发现加载）
+- `src/juicechain/core/input_point.py`: 通用输入点模型（含 header/cookie/path 等注入面）
 - `src/juicechain/cli/`: 命令行入口与命令编排
 - `src/juicechain/core/`: 核心扫描与漏洞模块
 - `src/juicechain/utils/`: 日志与输出公共能力
