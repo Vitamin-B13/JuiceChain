@@ -1,9 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
-from juicechain.core.http_client import HttpClient
+from juicechain.core.http_client import HttpClient, HttpResponse
 from juicechain.core.input_point import InputPoint, Location
 from juicechain.core.target import join_url
 from juicechain.plugins.base import Finding, VulnPlugin
@@ -59,6 +59,70 @@ class Plugin(VulnPlugin):
     severity: ClassVar[str] = "high"
     supported_locations: ClassVar[set[Location]] = {"query", "body_json", "header"}
 
+    def _baseline_cache(self) -> dict[tuple[str, str, Location, str], bool]:
+        cache = getattr(self, "_baseline_guard_cache", None)
+        if isinstance(cache, dict):
+            return cast(dict[tuple[str, str, Location, str], bool], cache)
+        cache = {}
+        setattr(self, "_baseline_guard_cache", cache)
+        return cache
+
+    @staticmethod
+    def _baseline_is_broken(res: HttpResponse) -> bool:
+        if res.status_code is not None and res.status_code >= 500:
+            return True
+        return bool(_SQL_ERR_RE.search(res.text()))
+
+    def _skip_query_baseline(
+        self,
+        base: str,
+        point: InputPoint,
+        client: HttpClient,
+        timeout: float,
+        max_bytes: int,
+    ) -> bool:
+        key = (point.method, point.path, point.location, point.param)
+        cache = self._baseline_cache()
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
+        res = client.request(
+            "GET",
+            join_url(base, point.path),
+            timeout=timeout,
+            max_bytes=max_bytes,
+            params={point.param: "juicechain_probe"},
+        )
+        should_skip = res.ok and self._baseline_is_broken(res)
+        cache[key] = should_skip
+        return should_skip
+
+    def _skip_header_baseline(
+        self,
+        base: str,
+        point: InputPoint,
+        client: HttpClient,
+        timeout: float,
+        max_bytes: int,
+    ) -> bool:
+        key = (point.method, point.path, point.location, point.param)
+        cache = self._baseline_cache()
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
+        res = client.request(
+            point.method,
+            join_url(base, point.path),
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=dict(point.extra_headers),
+        )
+        should_skip = res.ok and self._baseline_is_broken(res)
+        cache[key] = should_skip
+        return should_skip
+
     def _json_group(self, point: InputPoint) -> list[InputPoint]:
         all_points = getattr(self, "_all_points", None)
         if not isinstance(all_points, list):
@@ -87,6 +151,8 @@ class Plugin(VulnPlugin):
 
         if point.location == "query" and point.method == "GET":
             url = join_url(base, point.path)
+            if self._skip_query_baseline(base, point, client, timeout, max_bytes):
+                return None
             for payload in payloads[:2]:
                 res = client.request("GET", url, timeout=timeout, max_bytes=max_bytes, params={point.param: payload})
                 if not res.ok:
@@ -161,6 +227,8 @@ class Plugin(VulnPlugin):
 
         if point.location == "header":
             url = join_url(base, point.path)
+            if self._skip_header_baseline(base, point, client, timeout, max_bytes):
+                return None
             for payload in payloads[:2]:
                 headers = dict(point.extra_headers)
                 headers[point.param] = payload

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from importlib import resources as importlib_resources
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse, urlunparse, urljoin, parse_qs
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 from juicechain.utils.logging import get_logger
@@ -64,19 +64,12 @@ _API_CANDIDATE_RE = re.compile(
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 _WORDLIST_CATEGORIES: tuple[str, ...] = ("common", "api", "backup")
-_API_SUBPATH_PROBES: tuple[str, ...] = (
-    "search",
-    "list",
-    "query",
-    "find",
-    "export",
-    "download",
-    "detail",
-    "all",
-    "count",
-    "check",
-    "verify",
-    "status",
+_SUBPATH_PROBES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("/search", ("q", "query", "search", "keyword")),
+    ("/find", ("q", "query", "term")),
+    ("/list", ("q", "page", "limit")),
+    ("/filter", ("q", "category", "type")),
+    ("", ("q", "search", "query", "id", "name")),
 )
 
 
@@ -352,6 +345,30 @@ def _normalize_api_candidate_path(path: str) -> str | None:
     return p if p and p != "/" else None
 
 
+def _normalize_api_candidate(candidate: str) -> str | None:
+    raw = (candidate or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    path = (parsed.path or "").strip()
+    if not path.startswith("/"):
+        return None
+    if path != "/":
+        path = path.rstrip("/")
+    if not path or path == "/":
+        return None
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    if not query_pairs:
+        return path
+    query = urlencode(sorted(query_pairs))
+    return f"{path}?{query}"
+
+
+def _has_static_suffix(path: str) -> bool:
+    low = (path or "").strip().lower()
+    return any(low.endswith(ext) for ext in _STATIC_PATH_SUFFIXES)
+
+
 def _extract_asset_urls(base: str, html: bytes) -> list[str]:
     if not html:
         return []
@@ -420,93 +437,92 @@ def detect_spa_fallback(base: str, client: HttpClient, *, timeout: float) -> Fal
     return FallbackSignature(url=url, status_code=res.status_code, sig=sig, title=title, content_type=ct)
 
 
-def probe_api_subpaths(
+def _probe_api_subpaths_impl(
     base: str,
-    api_candidates: set[str],
+    endpoints: list[str],
     client: HttpClient,
     *,
-    timeout: float = 3.0,
-    max_bytes: int = 200_000,
-    fallback_signature: str = "",
-    max_probes: int = 200,
-) -> set[str]:
-    """Probe API subpaths derived from base API candidates.
+    timeout: float,
+    max_bytes: int,
+    fallback_sig: str | None = None,
+    max_probes: int | None = None,
+) -> list[str]:
+    """Probe likely API subpaths and query parameters from discovered endpoints."""
+    out: list[str] = []
+    seen_out: set[str] = set()
+    seen_existing: set[str] = set()
+    seen_paths: set[str] = set()
+    normalized_paths: list[str] = []
 
-    Args:
-        base: Target base URL.
-        api_candidates: Existing API path candidates.
-        client: Shared HTTP client.
-        timeout: Request timeout in seconds.
-        max_bytes: Maximum bytes read per probe response.
-        fallback_signature: Known SPA fallback body signature for noise filtering.
-        max_probes: Maximum probe requests before stopping.
+    for endpoint in endpoints:
+        normalized_candidate = _normalize_api_candidate(endpoint)
+        if normalized_candidate:
+            seen_existing.add(normalized_candidate)
+        normalized_path = _normalize_api_candidate_path(endpoint)
+        if not normalized_path or normalized_path in seen_paths:
+            continue
+        seen_paths.add(normalized_path)
+        normalized_paths.append(normalized_path)
 
-    Returns:
-        Newly discovered API subpaths that look like live JSON endpoints.
-    """
-    out: set[str] = set()
-    probe_budget = max(0, int(max_probes))
-    if probe_budget <= 0:
-        return out
-
-    fallback_sig = (fallback_signature or "").strip()
+    fallback_sig = (fallback_sig or "").strip()
     probe_count = 0
+    for base_path in normalized_paths:
+        if _has_static_suffix(base_path):
+            continue
 
-    normalized_base_paths: set[str] = set()
-    for candidate in api_candidates:
-        normalized = _normalize_api_candidate_path(candidate)
-        if normalized:
-            normalized_base_paths.add(normalized)
-
-    sorted_paths = sorted(normalized_base_paths, key=lambda p: (p.count("/"), p))
-
-    # Prefer root-level candidates and skip probing paths that are already
-    # children of another candidate path.
-    root_candidates: list[str] = []
-    for p in sorted_paths:
-        is_child = any(
-            p.startswith(parent.rstrip("/") + "/")
-            for parent in root_candidates
-        )
-        if not is_child:
-            root_candidates.append(p)
-
-    for base_path in root_candidates:
-        for subpath in _API_SUBPATH_PROBES:
-            if probe_count >= probe_budget:
-                return out
-
-            probe_path = f"{base_path.rstrip('/')}/{subpath}"
-            if probe_path in normalized_base_paths or probe_path in out:
+        for suffix, param_names in _SUBPATH_PROBES:
+            probe_path = f"{base_path.rstrip('/')}" + suffix if suffix else base_path
+            if _has_static_suffix(probe_path):
                 continue
 
-            probe_count += 1
-            url = join_url(base, probe_path)
-            res = client.request(
-                "GET",
-                url,
-                timeout=timeout,
-                max_bytes=max_bytes,
-                params={"q": "test"},
-            )
-            if not res.ok or res.status_code != 200:
-                continue
+            for param_name in param_names:
+                if max_probes is not None and probe_count >= max_probes:
+                    return out
 
-            ct = (
-                res.headers.get("Content-Type")
-                or res.headers.get("content-type")
-                or ""
-            ).lower()
-            if "json" not in ct:
-                continue
+                candidate = f"{probe_path}?{param_name}=probe"
+                if candidate in seen_existing or candidate in seen_out:
+                    continue
 
-            sig = body_signature(res.body)
-            if fallback_sig and sig == fallback_sig:
-                continue
+                probe_count += 1
+                res = client.request(
+                    "GET",
+                    join_url(base, probe_path),
+                    timeout=timeout,
+                    max_bytes=max_bytes,
+                    params={param_name: "probe"},
+                )
+                if not res.ok or res.status_code != 200:
+                    continue
+                if "json" not in res.content_type().lower():
+                    continue
 
-            out.add(probe_path)
+                sig = body_signature(res.body)
+                if fallback_sig and sig == fallback_sig:
+                    continue
+
+                seen_out.add(candidate)
+                out.append(candidate)
 
     return out
+
+
+def probe_api_subpaths(
+    base: str,
+    endpoints: list[str],
+    client: HttpClient,
+    *,
+    timeout: float,
+    max_bytes: int,
+    fallback_sig: str | None = None,
+) -> list[str]:
+    return _probe_api_subpaths_impl(
+        base,
+        endpoints,
+        client,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        fallback_sig=fallback_sig,
+    )
 
 
 def crawl_site(
@@ -695,24 +711,6 @@ def crawl_site(
 
                 # API candidates
                 api_candidates |= _scan_api_candidates_from_js(js_text)
-
-        if fetch_spa_assets and enable_api_subpath_probe and api_candidates:
-            fallback_signature = ""
-            fallback = detect_spa_fallback(base, client, timeout=timeout)
-            if fallback and fallback.sig:
-                fallback_signature = fallback.sig
-
-            discovered_api_subpaths = probe_api_subpaths(
-                base,
-                api_candidates,
-                client,
-                timeout=timeout,
-                max_bytes=max_bytes,
-                fallback_signature=fallback_signature,
-                max_probes=max_api_subpath_probes,
-            )
-            if discovered_api_subpaths:
-                api_candidates |= discovered_api_subpaths
 
         # Normalize route strings to "#/xxx"
         def _norm_route(r: str) -> str:
@@ -1094,6 +1092,68 @@ def enumerate_attack_surface(
         spa_routes=spa_routes,
     )
     out["content_discovery"] = content
+
+    if enable_api_subpath_probe:
+        spa = crawler.get("spa")
+        if not isinstance(spa, dict):
+            spa = {}
+            crawler["spa"] = spa
+
+        existing_api_candidates_raw = spa.get("api_candidates_from_assets")
+        if not isinstance(existing_api_candidates_raw, list):
+            existing_api_candidates_raw = []
+
+        probe_seeds: list[str] = []
+        for finding in content.get("findings_server_endpoints") or []:
+            if not isinstance(finding, dict):
+                continue
+            path = finding.get("path")
+            if isinstance(path, str) and path.strip():
+                probe_seeds.append(path)
+        for candidate in existing_api_candidates_raw:
+            if isinstance(candidate, str) and candidate.strip():
+                probe_seeds.append(candidate)
+
+        fallback_sig: str | None = None
+        fallback_probe = content.get("fallback_probe")
+        if isinstance(fallback_probe, dict):
+            fallback_raw = fallback_probe.get("signature")
+            if isinstance(fallback_raw, str) and fallback_raw.strip():
+                fallback_sig = fallback_raw.strip()
+
+        discovered_api_subpaths: list[str] = []
+        if probe_seeds:
+            probe_client = HttpClient(
+                timeout=timeout,
+                verify_tls=verify_tls,
+                allow_redirects=allow_redirects,
+                max_bytes=max_bytes,
+                retries=retries,
+                min_interval_ms=min_interval_ms,
+            )
+            try:
+                discovered_api_subpaths = _probe_api_subpaths_impl(
+                    base,
+                    probe_seeds,
+                    probe_client,
+                    timeout=timeout,
+                    max_bytes=max_bytes,
+                    fallback_sig=fallback_sig,
+                    max_probes=max(0, int(max_api_subpath_probes)),
+                )
+            finally:
+                probe_client.close()
+
+        merged_api_candidates = sorted(
+            {
+                candidate
+                for candidate in existing_api_candidates_raw
+                if isinstance(candidate, str) and candidate.strip()
+            }
+            | set(discovered_api_subpaths)
+        )
+        spa["api_candidates_from_assets"] = merged_api_candidates
+        logger.info("subpath probe done: new_endpoints=%s", len(discovered_api_subpaths))
 
     out["ok"] = bool(crawler.get("pages_fetched")) or bool(content.get("findings_server_endpoints")) or bool(
         content.get("findings_spa_routes")
